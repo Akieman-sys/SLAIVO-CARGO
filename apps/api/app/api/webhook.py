@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Request
-
+from app.services.deduplication import is_duplicate, mark_as_seen
 from app.models.message import NormalizedMessage
 
 router = APIRouter()
@@ -34,6 +34,15 @@ async def receive_whatsapp_message(request: Request):
     payload = await request.json()
 
     normalized_message = normalize_whatsapp_payload(payload)
+
+    if is_duplicate(normalized_message.dedupe_key):
+        return {
+            "status": "duplicate",
+            "message": "Message already processed",
+            "dedupe_key": normalized_message.dedupe_key,
+        }
+
+    mark_as_seen(normalized_message.dedupe_key)
 
     print("=== WHATSAPP WEBHOOK RECEIVED ===")
     print(payload)

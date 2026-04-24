@@ -1,42 +1,85 @@
-# SOURCE OF TRUTH — SLAIVO
+# SOURCE OF TRUTH — SLAIVO CARGO OS
 
-## Core Rule
+## 1. Core Principle
 
-Everything lives inside a DOSSIER.
+SLAIVO is not a chatbot.
 
-No message exists outside a dossier.
-No shipment exists outside a dossier.
-No payment exists outside a dossier.
+SLAIVO is a Cargo Operating System where the DOSSIER is the source of truth.
 
-## Flow
+## 2. Central Object
 
-Message → Client → Dossier → Shipment → Status → Action
+Everything must be linked to a dossier:
 
-## Validation Rule
+- client
+- WhatsApp messages
+- future Gmail messages
+- future TikTok messages
+- shipments
+- payments
+- relances
+- manager actions
+- proofs
+- notes
+- escalations
 
-Nothing critical is done without manager validation.
+## 3. Golden Rules
 
-Tracking is NEVER sent before validation.
+No important message lives outside a dossier.
 
-## Partial Rule
+No shipment lives outside a dossier.
 
-We accept incomplete data.
+No payment lives outside a dossier.
 
-We NEVER block a client.
+No relance is sent without a dossier.
 
-We always prefer:
-PARTIAL + ACTION
+No final tracking ID is sent before manager validation.
 
-## Human Rule
+## 4. Partial Intake Rule
 
-Manager is always in control.
+SLAIVO accepts incomplete information.
 
-System suggests.
-Manager decides.
+If weight, recipient, supplier, price or document is missing, the dossier becomes PARTIAL.
 
-## Relance Rule
+The system must prefer:
 
-Relances must:
-- have a trigger
-- have a stop condition
-- never spam
+PARTIAL + ACTION REQUIRED
+
+instead of blocking the client.
+
+## 5. Human Control Rule
+
+The manager stays the final decision-maker.
+
+SLAIVO can:
+
+- suggest
+- classify
+- remind
+- prepare
+- notify
+
+But the manager validates critical actions.
+
+## 6. V1 Scope
+
+V1 supports:
+
+- WhatsApp intake
+- manual client creation
+- manual dossier creation
+- partial intake
+- shipment tracking
+- manager validation
+- relances
+- balance due
+- dashboard actions
+- simple evidence
+
+V1 refuses:
+
+- TikTok integration
+- Gmail integration
+- automated client cargo payment
+- advanced AI
+- Kubernetes
+- microservices

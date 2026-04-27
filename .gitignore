@@ -1,0 +1,28 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+ENV/
+env/
+
+# --- Variables d'environnement (SÉCURITÉ) ---
+# Ne jamais supprimer ces lignes, elles protègent tes clés Supabase
+.env
+.env.local
+.env.secret
+
+# --- IDE / Éditeurs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Base de données locale (si utilisée) ---
+*.sqlite3

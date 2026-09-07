@@ -2,6 +2,7 @@
 
 import { useClerk, useUser } from "@clerk/nextjs";
 import {
+  ArrowLeft,
   Bell,
   BookOpen,
   CheckCheck,
@@ -15,6 +16,7 @@ import {
   Keyboard,
   Languages,
   LogOut,
+  Mail,
   Menu,
   Megaphone,
   MessageSquareText,
@@ -50,6 +52,7 @@ import { PilotOfflineIndicator } from "@/components/offline/pilot-offline-indica
 import { dashboardLabel, setDashboardLocale, useDashboardLocale } from "@/components/i18n/dashboard-language";
 
 type FloatingPanel = "account" | "notifications" | "help" | "language" | null;
+type SupportView = "topics" | "contact" | null;
 const clerkEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 const utilityRoutes: readonly AppRoute[] = [
@@ -71,6 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [floatingPanel, setFloatingPanel] = useState<FloatingPanel>(null);
+  const [supportView, setSupportView] = useState<SupportView>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(
     pilot ? { Communication: true } : { Clients: false, Opérations: true, "Offre commerciale": false, Communication: false, Pilotage: false },
@@ -148,6 +152,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       if (event.key === "Escape") {
         setSearchOpen(false);
         setFloatingPanel(null);
+        setSupportView(null);
       }
     }
     window.addEventListener("keydown", onShortcut);
@@ -220,7 +225,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <nav className={`min-h-0 flex-1 overflow-y-auto lg:overflow-hidden ${pilot ? "px-3 py-3 lg:px-0 lg:py-2" : `py-2.5 ${sidebarCollapsed ? "lg:px-2" : "px-3"}`}`} aria-label="Navigation Slaivio">
           {pilot ? (
-            <div className="space-y-1.5">
+            <div>
               <PilotRailLink href="/app" icon={<Home size={19} />} active={pathname === "/app"} label={dashboardLabel(locale, "Accueil", "/app")} />
               {pilotPrimaryRoutes.map((route) => (
                 <PilotRailLink
@@ -268,7 +273,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </>}
         </nav>
 
-        {pilot && <div className="mt-auto flex shrink-0 items-center gap-1 px-3 pb-3 lg:grid lg:px-0 lg:pb-2">
+        {pilot && <div className="mt-auto flex shrink-0 items-center px-3 pb-3 lg:grid lg:px-0 lg:pb-0">
           <PilotRailButton label={dashboardLabel(locale, "Notifications")} icon={<Bell size={19} />} onClick={() => togglePanel("notifications")} active={floatingPanel === "notifications"} />
           <AccountTrigger onClick={() => togglePanel("account")} rail />
         </div>}
@@ -313,7 +318,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         {floatingPanel === "help" && <div className="fixed right-[82px] top-[52px] z-50"><HelpMenu close={() => setFloatingPanel(null)} /></div>}
         {floatingPanel === "notifications" && <div className={`fixed z-50 ${pilot ? "bottom-[70px] left-3 lg:left-[96px]" : "right-[48px] top-[52px]"}`}><NotificationsMenu pilot={pilot} close={() => setFloatingPanel(null)} /></div>}
         {floatingPanel === "language" && <div className="fixed right-[82px] top-[52px] z-50"><LanguageMenu close={() => setFloatingPanel(null)}/></div>}
-        {floatingPanel === "account" && <div className={`fixed z-50 ${pilot ? "bottom-3 left-3 lg:left-[96px]" : "right-3 top-[52px]"}`}><AccountMenu close={() => setFloatingPanel(null)} /></div>}
+        {floatingPanel === "account" && <div className={`fixed z-50 ${pilot ? "bottom-3 left-3 lg:left-[96px]" : "right-3 top-[52px]"}`}><AccountMenu close={() => setFloatingPanel(null)} openSupport={() => { setFloatingPanel(null); setSupportView("topics"); }} /></div>}
+
+        {supportView && <SupportDialog locale={locale} view={supportView} setView={setSupportView} close={() => setSupportView(null)} />}
 
         {pilot && <PilotOfflineIndicator />}
         <main className="slaivio-operations min-h-0 min-w-0 flex-1 overflow-y-auto bg-white">
@@ -374,7 +381,7 @@ function PilotRailLink({ href, icon, active, label }: { href: string; icon: Reac
       data-active={active ? "true" : "false"}
       href={href}
       aria-current={active ? "page" : undefined}
-      className={`group flex min-h-[42px] items-center gap-2.5 rounded-[7px] px-2.5 text-[14px] lg:min-h-[68px] lg:w-full lg:flex-col lg:justify-center lg:gap-1.5 lg:rounded-none lg:px-1 lg:text-[11px] ${active ? "bg-[#e4f4ee] font-[630] text-[#145f49]" : "font-[460] text-[#4b545c] hover:bg-[#f2f4f4] hover:text-[#20252b]"}`}
+      className={`group flex min-h-[42px] items-center gap-2.5 rounded-none px-2.5 text-[14px] lg:min-h-[68px] lg:w-full lg:flex-col lg:justify-center lg:gap-1.5 lg:px-1 lg:text-[11px] ${active ? "bg-[#e4f4ee] font-[630] text-[#145f49]" : "font-[460] text-[#4b545c] hover:bg-[#f2f4f4] hover:text-[#20252b]"}`}
     >
       <span className={active ? "text-[#16855f]" : "text-[#656c74] group-hover:text-[#3f474f]"}>{icon}</span>
       <span className="truncate lg:w-full lg:whitespace-normal lg:px-1 lg:text-center lg:leading-[14px]">{label}</span>
@@ -383,7 +390,7 @@ function PilotRailLink({ href, icon, active, label }: { href: string; icon: Reac
 }
 
 function PilotRailButton({ icon, active, label, onClick }: { icon: ReactNode; active: boolean; label: string; onClick: () => void }) {
-  return <button type="button" onClick={onClick} aria-label={label} aria-expanded={active} title={label} className={`group flex h-11 w-11 items-center justify-center rounded-[7px] lg:h-[52px] lg:w-full ${active ? "bg-[#e4f4ee] text-[#145f49]" : "text-[#656c74] hover:bg-[#f2f4f4] hover:text-[#20252b]"}`}>{icon}</button>;
+  return <button type="button" onClick={onClick} aria-label={label} aria-expanded={active} title={label} className={`group flex h-11 w-11 items-center justify-center rounded-none lg:h-[52px] lg:w-full ${active ? "bg-[#e4f4ee] text-[#145f49]" : "text-[#656c74] hover:bg-[#f2f4f4] hover:text-[#20252b]"}`}>{icon}</button>;
 }
 
 function pilotRouteLabel(locale: "fr" | "en", fallback: string, href: string) {
@@ -415,37 +422,37 @@ function ClerkAccountTrigger({ onClick, rail }: { onClick: () => void; rail: boo
   const { user } = useUser();
   const name = user?.fullName || user?.primaryEmailAddress?.emailAddress || "Compte";
   return (
-    <button type="button" onClick={onClick} aria-label="Compte" className={rail ? "flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-[7px] text-[10px] leading-3 text-[#4b545c] hover:bg-[#f2f4f4]" : "ml-1 flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-[#087a46] text-[12px] font-semibold text-white ring-1 ring-black/5"}>
+    <button type="button" onClick={onClick} aria-label="Compte" className={rail ? "flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-none text-[10px] leading-3 text-[#4b545c] hover:bg-[#f2f4f4]" : "ml-1 flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-[#087a46] text-[12px] font-semibold text-white ring-1 ring-black/5"}>
       <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-[#087a46] text-[12px] font-semibold text-white ring-1 ring-black/5"><UserAvatar imageUrl={user?.imageUrl} name={name} size={32} /></span>
     </button>
   );
 }
 
-function AccountMenu({ close }: { close: () => void }) {
+function AccountMenu({ close, openSupport }: { close: () => void; openSupport: () => void }) {
   if (!clerkEnabled) {
-    return <FallbackAccountMenu close={close} />;
+    return <FallbackAccountMenu close={close} openSupport={openSupport} />;
   }
-  return <ClerkAccountMenu close={close} />;
+  return <ClerkAccountMenu close={close} openSupport={openSupport} />;
 }
 
-function ClerkAccountMenu({ close }: { close: () => void }) {
+function ClerkAccountMenu({ close, openSupport }: { close: () => void; openSupport: () => void }) {
   const { user } = useUser();
   const { signOut } = useClerk();
   const name = user?.primaryEmailAddress?.emailAddress || user?.fullName || "Compte";
   const email = user?.primaryEmailAddress?.emailAddress || "";
-  return <AccountMenuContent close={close} name={name} email={email} imageUrl={user?.imageUrl} logout={() => signOut({ redirectUrl: "/sign-in" })} />;
+  return <AccountMenuContent close={close} name={name} email={email} imageUrl={user?.imageUrl} openSupport={openSupport} logout={() => signOut({ redirectUrl: "/sign-in" })} />;
 }
 
 function FallbackAccountTrigger({ onClick, rail }: { onClick: () => void; rail: boolean }) {
   return (
-    <button type="button" onClick={onClick} aria-label="Compte" className={rail ? "flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-[7px] text-[10px] leading-3 text-[#4b545c] hover:bg-[#f2f4f4]" : "ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#087a46] text-white ring-1 ring-black/5"}>
+    <button type="button" onClick={onClick} aria-label="Compte" className={rail ? "flex min-h-[58px] w-full flex-col items-center justify-center gap-1 rounded-none text-[10px] leading-3 text-[#4b545c] hover:bg-[#f2f4f4]" : "ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#087a46] text-white ring-1 ring-black/5"}>
       <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#087a46] text-white ring-1 ring-black/5"><UserRound size={16} aria-hidden="true" /></span>
     </button>
   );
 }
 
-function FallbackAccountMenu({ close }: { close: () => void }) {
-  return <AccountMenuContent close={close} name="Compte local" email="compte@local" logout={() => { window.location.assign("/sign-in"); }} />;
+function FallbackAccountMenu({ close, openSupport }: { close: () => void; openSupport: () => void }) {
+  return <AccountMenuContent close={close} name="Compte local" email="compte@local" openSupport={openSupport} logout={() => { window.location.assign("/sign-in"); }} />;
 }
 
 function LanguageMenu({close}:{close:()=>void}){
@@ -454,7 +461,7 @@ function LanguageMenu({close}:{close:()=>void}){
   return <div className="w-[230px] rounded-[8px] border border-[#d1d5d8] bg-white p-1.5 shadow-[0_16px_44px_rgba(15,23,42,.18)]"><p className="px-2 py-2 text-[11px] font-semibold uppercase tracking-wide text-[#7a838b]">{dashboardLabel(locale,"Langue du tableau de bord")}</p>{([['fr','🇫🇷','Français'],['en','🇬🇧','English']] as const).map(([key,flag,label])=><button key={key} type="button" onClick={()=>choose(key)} className="flex h-10 w-full items-center gap-2 rounded-[6px] px-2 text-left text-[13px] hover:bg-[#f2f4f4]"><span aria-hidden="true">{flag}</span><span className="flex-1">{label}</span>{locale===key&&<CheckCheck size={15} className="text-[#16855f]"/>}</button>)}</div>
 }
 
-function AccountMenuContent({ close, name, email, imageUrl, logout }: { close: () => void; name: string; email: string; imageUrl?: string | null; logout: () => void | Promise<unknown> }) {
+function AccountMenuContent({ close, name, email, imageUrl, openSupport, logout }: { close: () => void; name: string; email: string; imageUrl?: string | null; openSupport: () => void; logout: () => void | Promise<unknown> }) {
   const locale = useDashboardLocale();
   const { permissions, available } = usePermissions();
   const canOpenPlatform = !available || permissions.some((permission) => permission.startsWith("platform."));
@@ -466,13 +473,14 @@ function AccountMenuContent({ close, name, email, imageUrl, logout }: { close: (
   if (pilot) {
     return (
       <div className="w-[300px] rounded-[7px] border border-[#d1d4d7] bg-white shadow-[0_16px_44px_rgba(15,23,42,.18)]">
-        <div className="flex items-center gap-3 px-4 py-4">
-          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-[#087a46] text-sm font-semibold text-white"><UserAvatar imageUrl={imageUrl} name={name} size={40} /></div>
-          <div className="min-w-0 flex-1 truncate text-[13px] font-medium">{email}</div>
+        <div className="px-4 py-3.5">
+          <p className="text-[11px] text-[#737a82]">{locale === "en" ? "Signed in as" : "Connecté en tant que"}</p>
+          <p className="mt-1 truncate text-[13px] font-semibold">{email}</p>
         </div>
         <MenuDivider />
+        <button type="button" onClick={openSupport} className={menuClass}><CircleHelp size={15} />Support</button>
+        <MenuLink href="/app/settings?section=privacy" icon={<ShieldCheck size={15} />} label={locale === "en" ? "Privacy and cookies" : "Confidentialité et cookies"} close={close} />
         <MenuLink href="/app/settings" icon={<Settings size={15} />} label={dashboardLabel(locale,"Paramètres")} close={close} />
-        <a href="mailto:support@slaivio.com?subject=Support%20Slaivio" onClick={close} className={menuClass}><CircleHelp size={15} /><span className="min-w-0"><span className="block">Support</span><span className="block text-[11px] text-[#737a82]">support@slaivio.com</span></span></a>
         <MenuDivider />
         <button type="button" onClick={async () => { close(); await logout(); }} className={menuClass}>
           <LogOut size={15} /> {dashboardLabel(locale,"Se déconnecter")}
@@ -508,6 +516,45 @@ function AccountMenuContent({ close, name, email, imageUrl, logout }: { close: (
       </button>
     </div>
   );
+}
+
+function SupportDialog({ locale, view, setView, close }: { locale: "fr" | "en"; view: Exclude<SupportView, null>; setView: (view: SupportView) => void; close: () => void }) {
+  const fr = locale === "fr";
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/30 p-4" role="dialog" aria-modal="true" aria-labelledby="support-dialog-title" onMouseDown={(event) => { if (event.currentTarget === event.target) close(); }}>
+      <section className="w-full max-w-[560px] overflow-hidden rounded-[12px] bg-white shadow-[0_24px_70px_rgba(15,23,42,.24)]">
+        <div className="flex items-center px-6 pt-5">
+          {view === "contact" && <button type="button" onClick={() => setView("topics")} aria-label={fr ? "Retour" : "Back"} className="mr-2 grid h-8 w-8 place-items-center rounded-full text-[#596169] hover:bg-[#f1f3f2]"><ArrowLeft size={17} /></button>}
+          <button type="button" onClick={close} aria-label={fr ? "Fermer" : "Close"} className="ml-auto grid h-8 w-8 place-items-center rounded-full text-[#697179] hover:bg-[#f1f3f2]"><X size={17} /></button>
+        </div>
+        {view === "topics" ? (
+          <div className="px-7 pb-8 pt-1">
+            <h2 id="support-dialog-title" className="text-center text-[24px] font-semibold tracking-[-0.02em]">{fr ? "Comment pouvons-nous vous aider ?" : "How can we help?"}</h2>
+            <p className="mt-2 text-center text-[14px] text-[#697179]">{fr ? "Sélectionnez un sujet pour trouver l’aide dont vous avez besoin" : "Select a topic to find the help you need"}</p>
+            <div className="mt-7 grid gap-3">
+              <SupportTopic icon={<FileQuestion size={19} />} title={fr ? "Comment fonctionnent les candidatures ?" : "How do applications work?"} subtitle={fr ? "Processus de candidature et premières étapes" : "Application process and how to get started"} close={close} />
+              <SupportTopic icon={<Megaphone size={19} />} title={fr ? "Politiques de parrainage" : "Referral policies"} subtitle={fr ? "Nous aimons les recommandations, voici à quoi vous attendre" : "We love referrals, here’s what to expect"} close={close} />
+              <SupportTopic icon={<MessageSquareText size={19} />} title={fr ? "Contacter le support" : "Contact support"} subtitle={fr ? "Contactez-nous pour obtenir de l’aide." : "Reach out for help."} onClick={() => setView("contact")} />
+            </div>
+          </div>
+        ) : (
+          <div className="px-7 pb-8 pt-1">
+            <h2 id="support-dialog-title" className="text-[24px] font-semibold tracking-[-0.02em]">{fr ? "Contacter le support" : "Contact support"}</h2>
+            <p className="mt-2 text-[14px] text-[#697179]">{fr ? "Contactez notre équipe pour une assistance personnalisée." : "Reach out to our team for personalized assistance."}</p>
+            <div className="mt-7 rounded-[10px] bg-[#f5f7f6] p-5">
+              <div className="flex items-center gap-2.5"><Mail size={18} className="text-[#087a46]" /><h3 className="text-[15px] font-semibold">{fr ? "Support par e-mail" : "Email support"}</h3></div>
+              <p className="mt-3 text-[14px] leading-6 text-[#59636b]">{fr ? "Contactez notre équipe à" : "Reach out to our team at"} <a href="mailto:support@slaivio.com" className="font-semibold text-[#087a46] hover:underline">support@slaivio.com</a>. {fr ? "Nous répondons généralement sous 24 heures." : "We typically respond within 24 hours."}</p>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function SupportTopic({ icon, title, subtitle, onClick, close }: { icon: ReactNode; title: string; subtitle: string; onClick?: () => void; close?: () => void }) {
+  const content = <><span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#edf6f1] text-[#087a46]">{icon}</span><span className="min-w-0"><span className="block text-[14px] font-semibold">{title}</span><span className="mt-0.5 block text-[12px] text-[#737b83]">{subtitle}</span></span><ChevronRight size={17} className="ml-auto shrink-0 text-[#939ba2]" /></>;
+  return onClick ? <button type="button" onClick={onClick} className="flex w-full items-center gap-3 rounded-[9px] bg-[#f7f8f8] px-4 py-3.5 text-left hover:bg-[#eef2f0]">{content}</button> : <Link href="/app/support" onClick={close} className="flex w-full items-center gap-3 rounded-[9px] bg-[#f7f8f8] px-4 py-3.5 hover:bg-[#eef2f0]">{content}</Link>;
 }
 
 function UserAvatar({ imageUrl, name, size }: { imageUrl?: string | null; name: string; size: number }) {

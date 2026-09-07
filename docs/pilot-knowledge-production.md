@@ -25,6 +25,20 @@ Le bucket Supabase `knowledge-files` doit exister et rester privé. Aucun lien p
 
 En production, l’absence de ClamAV bloque volontairement l’import. Ne désactivez pas ce contrôle pour contourner une erreur de déploiement.
 
+### Diagnostic de l’erreur `knowledge_antivirus_unavailable`
+
+Cette erreur signifie que `CLAMAV_HOST` est renseigné, mais que l’API ne peut pas joindre `CLAMAV_HOST:CLAMAV_PORT`. Le nom `clamav` ne fonctionne que si l’API et le service ClamAV partagent le même réseau Docker privé.
+
+Avant de redéployer l’API :
+
+1. démarrer ClamAV et attendre que son healthcheck soit sain (le premier chargement des signatures peut prendre environ 90 secondes) ;
+2. depuis le conteneur API, résoudre le nom défini dans `CLAMAV_HOST` et ouvrir une connexion TCP vers le port `3310` ;
+3. sur une plateforme multi-services, utiliser le nom DNS privé fourni par la plateforme, pas `localhost` ni une adresse publique ;
+4. conserver `KNOWLEDGE_ANTIVIRUS_REQUIRED=true`, puis redémarrer l’API après la correction des variables ;
+5. importer un petit fichier TXT sain avant de tester les images et les PDF.
+
+En Docker Compose, démarrer le service fourni avec `docker compose -f infra/docker-compose.antivirus.yml up -d` et utiliser `CLAMAV_HOST=clamav` uniquement si l’API est attachée au même réseau Compose. Si l’API tourne directement sur la machine hôte, utiliser l’adresse locale appropriée au système d’exploitation et garder `CLAMAV_PORT=3310`.
+
 ## Formats pris en charge
 
 - images : JPG, PNG, WebP ;

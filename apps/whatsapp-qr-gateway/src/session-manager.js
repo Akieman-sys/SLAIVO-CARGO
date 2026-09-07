@@ -33,6 +33,54 @@ const mediaMetadata = message => {
 };
 const reconnectDelay = attempt => Math.min(60_000, 2_000 * (2 ** Math.min(attempt, 5)));
 
+async function loadIdentityMap(session) {
+  try {
+    const result = await pool.query(
+      `select lid_jid,phone_jid from whatsapp_qr_identity_map where connection_id=$1`,
+      [session.id],
+    );
+    for (const row of result.rows) session.lidPhoneMap.set(jidNormalizedUser(row.lid_jid), jidNormalizedUser(row.phone_jid));
+  } catch (error) {
+    logger.warn({ error: error.message, connectionId: session.id }, "identity_map_load_failed");
+  }
+}
+
+async function persistIdentity(session, lid, phoneJid) {
+  const phone = phoneFromJid(phoneJid);
+  if (!lid?.endsWith("@lid") || !phone) return;
+  try {
+    await pool.query(
+      `with old_phones as materialized (
+         select distinct from_phone
+         from messages
+         where org_id=$2 and sender_jid=$3 and from_phone is distinct from $5
+       ), saved_identity as (
+         insert into whatsapp_qr_identity_map(connection_id,org_id,lid_jid,phone_jid,phone_number)
+         values($1,$2,$3,$4,$5)
+         on conflict(connection_id,lid_jid) do update
+         set phone_jid=excluded.phone_jid,phone_number=excluded.phone_number,updated_at=now()
+         returning lid_jid
+       ), moved_assignment as (
+         update conversation_assignments assignment
+         set client_phone=$5,updated_at=now()
+         where assignment.org_id=$2
+           and assignment.client_phone in (select from_phone from old_phones)
+           and not exists (
+             select 1 from conversation_assignments existing
+             where existing.org_id=$2 and existing.client_phone=$5
+           )
+         returning assignment.id
+       )
+       update messages
+       set from_phone=$5
+       where org_id=$2 and sender_jid=$3 and from_phone is distinct from $5`,
+      [session.id, session.orgId, lid, phoneJid, phone],
+    );
+  } catch (error) {
+    logger.warn({ error: error.message, connectionId: session.id, lid }, "identity_map_persist_failed");
+  }
+}
+
 async function notify(session, eventType, payload = {}, suffix) {
   await emitCallback({ org_id: session.orgId, connection_id: session.id, event_type: eventType,
     event_key: eventKey(session.id, eventType, suffix), payload });
@@ -86,6 +134,7 @@ export async function startSession(id, orgId) {
   session.status = "CONNECTING";
   session.intentionalLogout = false;
   sessions.set(id, session);
+  await loadIdentityMap(session);
   let auth;
   let socket;
   try {
@@ -111,7 +160,10 @@ export async function startSession(id, orgId) {
   const rememberContact = contact => {
     const lid = jidNormalizedUser(String(contact?.lid || (String(contact?.id || "").endsWith("@lid") ? contact.id : "")));
     const jid = jidNormalizedUser(String(contact?.jid || (String(contact?.id || "").endsWith("@s.whatsapp.net") ? contact.id : "")));
-    if (lid && phoneFromJid(jid)) session.lidPhoneMap.set(lid, jid);
+    if (lid && phoneFromJid(jid)) {
+      session.lidPhoneMap.set(lid, jid);
+      void persistIdentity(session, lid, jid);
+    }
   };
   socket.ev.on("contacts.upsert", contacts => contacts.forEach(rememberContact));
   socket.ev.on("contacts.update", contacts => contacts.forEach(rememberContact));

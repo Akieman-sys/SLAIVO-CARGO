@@ -1285,6 +1285,17 @@ div.min-h-full.bg-\[\#f7f7f6\] > main > section.overflow-hidden {
   box-shadow: 0 0 0 3px rgba(217, 45, 32, 0.08);
 }
 
+.slaivio-operations form[data-ui="chat-composer"] textarea,
+.slaivio-operations form[data-ui="chat-composer"] textarea:hover,
+.slaivio-operations form[data-ui="chat-composer"] textarea:focus {
+  min-height: 44px;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  resize: none;
+}
+
 .operation-form-surface [role="alert"] {
   font-size: 13px;
   line-height: 20px;

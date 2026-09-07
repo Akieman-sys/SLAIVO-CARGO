@@ -18,4 +18,11 @@ const mappedSender = resolveSenderIdentity({
 }, true, new Map([["123456789012345@lid", "243900000002@s.whatsapp.net"]]));
 assert.equal(mappedSender.phone, "+243900000002");
 
+const privateAltSender = resolveSenderIdentity({
+  remoteJid: "123456789012345@lid",
+  remoteJidAlt: "243900000003@s.whatsapp.net",
+}, false);
+assert.equal(privateAltSender.phone, "+243900000003");
+assert.equal(privateAltSender.senderJid, "123456789012345@lid");
+
 console.log("message identity tests passed");

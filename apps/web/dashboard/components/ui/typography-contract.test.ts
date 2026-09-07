@@ -37,7 +37,7 @@ describe("Slaivio typography contract", () => {
     const shell = read("components/layout/app-shell.tsx");
 
     expect(globalStyles).toContain("--sl-color-brand: #087a46");
-    expect(globalStyles).toContain("--pilot-canvas: var(--sl-color-canvas)");
+    expect(globalStyles).toContain("--pilot-canvas: #ffffff");
     expect(globalStyles).toContain("--sl-control-height: 40px");
     expect(globalStyles).toContain("--sl-radius-card: 12px");
     expect(globalStyles).toContain('.slaivio-pilot [data-ui="operation-page-header"]');

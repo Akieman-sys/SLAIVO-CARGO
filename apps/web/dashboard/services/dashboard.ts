@@ -33,6 +33,32 @@ export type DashboardHome = {
   unread_count: number;
   whatsapp: { configured: boolean; status: string; phone?: string | null };
   pilot: PilotHome;
+  parcel_freight: ParcelFreightHome;
+};
+
+export type ParcelFreightHome = {
+  stats: {
+    received: number;
+    shipped: number;
+    in_transit: number;
+    delivered: number;
+    waiting: number;
+  };
+  destinations: Array<{
+    destination: string;
+    total: number;
+    delivered: number;
+    delivery_rate: number;
+  }>;
+  recent_packages: Array<{
+    id: string;
+    reference: string;
+    client_name: string;
+    destination: string;
+    status: string;
+    updated_at: string;
+    href: string;
+  }>;
 };
 
 export type PilotHomeStats = {

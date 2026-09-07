@@ -1,20 +1,22 @@
 "use client";
 
-import { ArrowRight, Bell, Building2, CheckCircle2, Clock3, FolderOpen, MessageCircle, Plus, RefreshCcw, Users } from "lucide-react";
+import { ArrowRight, Bell, Building2, CheckCircle2, Clock3, FolderOpen, MapPin, MessageCircle, Package, Plus, RefreshCcw, Truck, Users } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { OperationButton, OperationMetric, OperationMetricGrid, OperationStatus } from "@/components/ui/operation-controls";
 import { OperationPageHeader } from "@/components/ui/operation-page-header";
 import { ErrorState } from "@/components/ui/page-state";
-import { isPilotV1, isPilotVisiblePath } from "@/config/product-profile";
+import { getOrganizationProductProfile, getProductProfile, isPilotVisiblePath, PRODUCT_PROFILES } from "@/config/product-profile";
 import { getDashboardHome, type DashboardHome, type HomeAttentionItem, type PilotActivity, type PilotDossierSummary } from "@/services/dashboard";
 import { PilotReadinessPanel } from "@/components/dashboard/pilot-readiness";
+import { getTenantContext } from "@/services/tenant";
 
 const dashboardCacheKey = "slaivio:dashboard-home";
 
 export function DashboardOverviewPage() {
-  const pilot = isPilotV1();
+  const [productProfile, setProductProfile] = useState(getProductProfile);
+  const pilot = productProfile === PRODUCT_PROFILES.PILOT_V1;
   const [data, setData] = useState<DashboardHome | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -44,10 +46,23 @@ export function DashboardOverviewPage() {
     void load(true);
   }, [load]);
 
+  useEffect(() => {
+    let active = true;
+    getTenantContext()
+      .then((context) => {
+        if (active) setProductProfile(getOrganizationProductProfile(context.active_tenant?.organization_type));
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
   if (!data && loading) return <DashboardSkeleton />;
   if (!data && error) return <ErrorState title="Accueil indisponible" description={error} retry={() => load(false)} />;
   if (data?.status === "no_workspace") return <NoWorkspace />;
   if (pilot && data) return <PilotDashboard data={data} loading={loading} error={error} reload={() => load(true)} />;
+  if (productProfile === PRODUCT_PROFILES.PARCEL_FREIGHT && data) {
+    return <ParcelFreightDashboard data={data} loading={loading} error={error} reload={() => load(true)} />;
+  }
 
   const resources = (data?.resources || []).filter((resource) => !pilot || isPilotVisiblePath(resource.href));
   const attentionItems = (data?.attention_items || []).filter((item) => !pilot || isPilotVisiblePath(item.href));
@@ -80,6 +95,52 @@ export function DashboardOverviewPage() {
 
     </main>
   </div>;
+}
+
+function ParcelFreightDashboard({ data, loading, error, reload }: { data: DashboardHome; loading: boolean; error: string; reload: () => void }) {
+  const parcel = data.parcel_freight || { stats: { received: 0, shipped: 0, in_transit: 0, delivered: 0, waiting: 0 }, destinations: [], recent_packages: [] };
+  const stats = parcel.stats;
+  return <div className="min-h-full bg-white text-[#25292e]">
+    <OperationPageHeader
+      title="Accueil"
+      description={`Suivez les colis et les départs de ${data.workspace.name}.`}
+      actions={<>
+        <OperationButton onClick={reload} disabled={loading}><RefreshCcw size={15} className={loading ? "animate-spin" : ""} />Actualiser</OperationButton>
+        <Link href="/app/packages" className="inline-flex h-9 items-center justify-center gap-2 rounded-[6px] bg-[#12c76f] px-3 text-[13px] font-semibold text-white hover:bg-[#0fb766]"><Plus size={15} />Nouveau colis</Link>
+      </>}
+    />
+    <main className="mx-auto grid w-full max-w-[1320px] gap-5 p-5 sm:p-6">
+      {error && <div className="flex items-center gap-3 rounded-[7px] border border-[#f1c7c3] bg-[#fff5f4] px-4 py-3 text-[12px] text-[#a52a22]"><span>{error} Les dernières données connues restent affichées.</span><button type="button" onClick={reload} className="ml-auto font-semibold">Réessayer</button></div>}
+      <section aria-label="État des colis">
+        <OperationMetricGrid className="lg:grid-cols-5">
+          <Link href="/app/packages" className="min-w-0"><OperationMetric label="Colis reçus" value={stats.received ?? 0} detail="Enregistrés à la réception" /></Link>
+          <Link href="/app/departures" className="min-w-0"><OperationMetric label="Expédiés" value={stats.shipped ?? 0} detail="Affectés à un départ" /></Link>
+          <Link href="/app/tracking" className="min-w-0"><OperationMetric label="En transit" value={stats.in_transit ?? 0} detail="En cours d’acheminement" /></Link>
+          <Link href="/app/packages" className="min-w-0"><OperationMetric label="Livrés" value={stats.delivered ?? 0} detail="Remis aux clients" /></Link>
+          <Link href="/app/packages" className="min-w-0"><OperationMetric label="En attente" value={stats.waiting ?? 0} detail="À traiter ou à retirer" tone={(stats.waiting ?? 0) > 0 ? "warning" : "default"} /></Link>
+        </OperationMetricGrid>
+      </section>
+
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(300px,.8fr)]">
+        <PilotSection title="Derniers colis" count={parcel.recent_packages.length} action={<Link href="/app/packages" className="text-[12px] font-semibold text-[#087a46]">Voir tous les colis</Link>}>
+          {parcel.recent_packages.length ? parcel.recent_packages.map((item) => <Link key={item.id} href={item.href} className="grid min-h-[68px] grid-cols-[38px_minmax(0,1fr)_auto_18px] items-center gap-3 border-b border-[#edf0f2] px-5 py-3.5 last:border-0 hover:bg-[#f8faf9]"><span className="grid h-8 w-8 place-items-center rounded-[8px] bg-[#edf8f2] text-[#087a46]"><Package size={16}/></span><span className="min-w-0"><span className="block truncate text-[13px] font-semibold">{item.reference}</span><span className="mt-1 block truncate text-[12px] text-[#74808a]">{item.client_name} · {item.destination}</span></span><OperationStatus label={item.status} tone={item.status === "BLOCKED" ? "warning" : "neutral"}/><ArrowRight size={14} className="text-[#a1a7ad]"/></Link>) : <PilotEmpty title="Aucun colis enregistré" description="Enregistrez le premier colis dès sa réception." />}
+        </PilotSection>
+        <PilotSection title="Performance par destination" count={parcel.destinations.length}>
+          {parcel.destinations.length ? parcel.destinations.map((item) => <div key={item.destination} className="grid min-h-16 grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 border-b border-[#edf0f2] px-5 py-3 last:border-0"><span className="grid h-8 w-8 place-items-center rounded-[8px] bg-[#f2f4f4] text-[#59646e]"><MapPin size={15}/></span><span className="min-w-0"><span className="block truncate text-[13px] font-semibold">{item.destination}</span><span className="mt-1 block text-[11px] text-[#78828c]">{item.delivered} livré(s) sur {item.total}</span></span><strong className="text-[13px] font-semibold text-[#087a46]">{Number(item.delivery_rate || 0).toFixed(0)}%</strong></div>) : <PilotEmpty title="Aucune destination" description="Les performances apparaîtront après l’enregistrement des colis." />}
+        </PilotSection>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <ParcelShortcut href="/app/departures" icon={<Truck size={17}/>} label="Départs et manifestes" description="Affecter les colis et générer les manifestes" />
+        <ParcelShortcut href="/app/inbox" icon={<MessageCircle size={17}/>} label="Messages clients" description="Centraliser les échanges WhatsApp" />
+        <ParcelShortcut href="/app/finance" icon={<Bell size={17}/>} label="Paiements et factures" description="Suivre montants, soldes, factures et reçus" />
+      </div>
+    </main>
+  </div>;
+}
+
+function ParcelShortcut({ href, icon, label, description }: { href: string; icon: ReactNode; label: string; description: string }) {
+  return <Link href={href} className="flex min-h-20 items-center gap-3 rounded-[9px] border border-[#e0e4e7] bg-white px-4 py-3 hover:bg-[#f8faf9]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-[8px] bg-[#edf8f2] text-[#087a46]">{icon}</span><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold">{label}</span><span className="mt-1 block text-[11px] leading-4 text-[#78828c]">{description}</span></span><ArrowRight size={15} className="shrink-0 text-[#9aa2aa]"/></Link>;
 }
 
 function PilotDashboard({ data, loading, error, reload }: { data: DashboardHome; loading: boolean; error: string; reload: () => void }) {

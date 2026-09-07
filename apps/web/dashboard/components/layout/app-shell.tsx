@@ -43,13 +43,14 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { usePermissions } from "@/components/permissions/permission-provider";
 import { OrganizationSwitcher } from "@/components/tenant/organization-switcher";
-import { appNavigation, canAccessRoute, searchableAppRoutes, type AppRoute } from "@/config/app-navigation";
-import { isPilotV1 } from "@/config/product-profile";
+import { canAccessRoute, getAppNavigation, type AppRoute } from "@/config/app-navigation";
+import { getOrganizationProductProfile, getProductProfile, isPilotV1, usesCompactAgencyShell } from "@/config/product-profile";
 import { SESSION_EXPIRED_EVENT } from "@/services/api";
 import { listNotifications, notificationAction, type CenterItem } from "@/services/notification-center";
 import { SlaivioBrand } from "@/components/ui/slaivio-brand";
 import { PilotOfflineIndicator } from "@/components/offline/pilot-offline-indicator";
 import { dashboardLabel, setDashboardLocale, useDashboardLocale } from "@/components/i18n/dashboard-language";
+import { getTenantContext } from "@/services/tenant";
 
 type FloatingPanel = "account" | "notifications" | "help" | "language" | null;
 type SupportView = "topics" | "contact" | null;
@@ -64,7 +65,10 @@ const utilityRoutes: readonly AppRoute[] = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const locale = useDashboardLocale();
-  const pilot = isPilotV1();
+  const [productProfile, setProductProfile] = useState(getProductProfile);
+  const pilot = usesCompactAgencyShell(productProfile);
+  const appNavigation = useMemo(() => getAppNavigation(productProfile), [productProfile]);
+  const searchableAppRoutes = useMemo(() => appNavigation.flatMap((group) => group.routes), [appNavigation]);
   const pathname = usePathname();
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -80,18 +84,30 @@ export function AppShell({ children }: { children: ReactNode }) {
     pilot ? { Communication: true } : { Clients: false, Opérations: true, "Offre commerciale": false, Communication: false, Pilotage: false },
   );
 
+  useEffect(() => {
+    let active = true;
+    getTenantContext()
+      .then((context) => {
+        if (active) setProductProfile(getOrganizationProductProfile(context.active_tenant?.organization_type));
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
   const groupedRoutes = useMemo(
     () => appNavigation.map((group) => ({
       ...group,
       routes: group.routes.filter((route) => canAccessRoute(route, permissions, permissionsAvailable)),
     })).filter((group) => group.routes.length),
-    [permissions, permissionsAvailable],
+    [appNavigation, permissions, permissionsAvailable],
   );
 
   const pilotPrimaryRoutes = useMemo(() => {
-    const primaryHrefs = new Set(["/app/dossiers", "/app/inbox", "/app/followups", "/app/knowledge"]);
+    const primaryHrefs = productProfile === "PARCEL_FREIGHT"
+      ? new Set(["/app/clients", "/app/packages", "/app/departures", "/app/finance", "/app/inbox", "/app/tracking", "/app/knowledge", "/app/settings"])
+      : new Set(["/app/dossiers", "/app/inbox", "/app/followups", "/app/knowledge"]);
     return groupedRoutes.flatMap((group) => group.routes).filter((route) => primaryHrefs.has(route.href));
-  }, [groupedRoutes]);
+  }, [groupedRoutes, productProfile]);
 
   const results = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("fr");
@@ -102,7 +118,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return routes.filter((route) =>
       [route.label, ...route.keywords].some((term) => term.toLocaleLowerCase("fr").includes(normalized)),
     );
-  }, [query, permissions, permissionsAvailable]);
+  }, [query, permissions, permissionsAvailable, searchableAppRoutes]);
 
   useEffect(() => {
     if (pilot) {
@@ -128,7 +144,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         setOpenGroups(Object.fromEntries(appNavigation.map((group) => [group.label, group.label === selected])));
       } catch { /* Ignore stale preferences. */ }
     }
-  }, [pilot]);
+  }, [appNavigation, pilot]);
 
   useEffect(() => {
     if (pilot) return;

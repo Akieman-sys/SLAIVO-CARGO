@@ -136,6 +136,19 @@ def upsert_agency_profile(org_id: str, data: dict):
     )
 
 
+def update_organization_business_type(org_id: str, business_type: str):
+    return fetch_one(
+        """
+        update organizations
+        set organization_type = :business_type,
+            updated_at = now()
+        where id = :org_id
+        returning id, organization_type
+        """,
+        {"org_id": org_id, "business_type": business_type},
+    )
+
+
 def get_agency_profile(org_id: str):
     return fetch_one(
         """

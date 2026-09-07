@@ -73,6 +73,76 @@ export const pilotV1Navigation: readonly AppNavigationGroup[] = [
   },
 ];
 
+// Exact operational scope requested for parcel and freight agencies. The
+// underlying Cargo OS modules remain reusable, but unrelated modules are not
+// exposed in this agency navigation.
+export const parcelFreightNavigation: readonly AppNavigationGroup[] = [
+  {
+    label: "Clients",
+    icon: Users,
+    collapsible: false,
+    routes: [
+      { label: "Clients", href: "/app/clients", icon: Users, permission: "clients.read", keywords: ["client", "historique", "contact"] },
+    ],
+  },
+  {
+    label: "Colis",
+    icon: Package,
+    collapsible: false,
+    routes: [
+      { label: "Colis", href: "/app/packages", icon: Package, keywords: ["colis", "poids", "destination", "statut", "suivi"] },
+    ],
+  },
+  {
+    label: "Départs",
+    icon: Truck,
+    collapsible: false,
+    routes: [
+      { label: "Départs et manifestes", href: "/app/departures", icon: Truck, permission: "departures.read", keywords: ["départ", "manifeste", "expédition"] },
+    ],
+  },
+  {
+    label: "Finances",
+    icon: ReceiptText,
+    collapsible: false,
+    routes: [
+      { label: "Finances", href: "/app/finance", icon: ReceiptText, permission: "finance.read", keywords: ["paiement", "solde", "facture", "reçu"] },
+    ],
+  },
+  {
+    label: "Messages",
+    icon: MessageCircle,
+    collapsible: false,
+    routes: [
+      { label: "Messages", href: "/app/inbox", icon: MessageCircle, permission: "inbox.read", keywords: ["whatsapp", "message", "conversation"] },
+    ],
+  },
+  {
+    label: "Suivi",
+    icon: Radar,
+    collapsible: false,
+    routes: [
+      { label: "Suivi", href: "/app/tracking", icon: Radar, permission: "tracking.read", keywords: ["suivi", "tracking", "statut"] },
+    ],
+  },
+  {
+    label: "Connaissances",
+    icon: BookOpen,
+    collapsible: false,
+    routes: [
+      { label: "Connaissances", href: "/app/knowledge", icon: BookOpen, permission: "pilot.knowledge.read", keywords: ["faq", "tarif", "adresse", "délai", "paiement"] },
+    ],
+  },
+  {
+    label: "Paramètres",
+    icon: Settings,
+    collapsible: false,
+    routes: [
+      { label: "Paramètres", href: "/app/settings", icon: Settings, permission: "pilot.settings.read", keywords: ["agence", "whatsapp", "accès"] },
+    ],
+  },
+];
+
 // The former operational surface stays available behind CARGO_OS. Nothing is deleted.
 export const cargoOsNavigation: readonly AppNavigationGroup[] = [
   {
@@ -126,7 +196,9 @@ export const cargoOsNavigation: readonly AppNavigationGroup[] = [
 ];
 
 export function getAppNavigation(profile: ProductProfile = getProductProfile()) {
-  return profile === PRODUCT_PROFILES.PILOT_V1 ? pilotV1Navigation : cargoOsNavigation;
+  if (profile === PRODUCT_PROFILES.PILOT_V1) return pilotV1Navigation;
+  if (profile === PRODUCT_PROFILES.PARCEL_FREIGHT) return parcelFreightNavigation;
+  return cargoOsNavigation;
 }
 
 export const appNavigation = getAppNavigation();

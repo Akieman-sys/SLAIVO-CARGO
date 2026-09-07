@@ -8,7 +8,7 @@ import {
   getOnboardingExperienceState,
   type OnboardingExperienceState,
 } from "@/services/onboarding-experience";
-import { saveAgencyProfile } from "@/services/onboarding";
+import { saveAgencyProfile, type AgencyProfilePayload } from "@/services/onboarding";
 import { completeOnboardingStep } from "@/services/onboarding-experience";
 
 export default function AgencyProfilePage() {
@@ -16,7 +16,7 @@ export default function AgencyProfilePage() {
   const [state, setState] = useState<OnboardingExperienceState | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<AgencyProfilePayload>({
     legal_name: "",
     brand_name: "",
     country: "",
@@ -27,7 +27,7 @@ export default function AgencyProfilePage() {
     website: "",
     default_language: "fr",
     default_currency: "USD",
-    business_type: "CARGO_AGENCY",
+    business_type: "VEHICLE_IMPORT",
   });
 
   useEffect(() => {
@@ -106,17 +106,26 @@ export default function AgencyProfilePage() {
             ]}
             onChange={(value) => setForm({ ...form, default_currency: value })}
           />
-          <Select
-            label="Type d’agence"
-            value={form.business_type}
-            options={[
-              ["CARGO_AGENCY", "Cargo agency"],
-              ["FREIGHT_FORWARDER", "Freight forwarder"],
-              ["SOURCING_AGENT", "Sourcing agent"],
-              ["HYBRID", "Hybrid"],
-            ]}
-            onChange={(value) => setForm({ ...form, business_type: value })}
-          />
+          <fieldset className="md:col-span-2">
+            <legend className="text-sm font-black text-slate-700">Activité de l’agence</legend>
+            <p className="mt-1 text-sm text-slate-500">
+              Ce choix adapte les modules et le tableau de bord de cette agence.
+            </p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2" role="radiogroup">
+              <BusinessTypeCard
+                checked={form.business_type === "VEHICLE_IMPORT"}
+                title="Importation de véhicules"
+                description="Dossiers, clients et communications pour le suivi des véhicules."
+                onSelect={() => setForm({ ...form, business_type: "VEHICLE_IMPORT" })}
+              />
+              <BusinessTypeCard
+                checked={form.business_type === "PARCEL_FREIGHT"}
+                title="Colis et fret"
+                description="Colis, départs, manifestes, finances, suivi et communications clients."
+                onSelect={() => setForm({ ...form, business_type: "PARCEL_FREIGHT" })}
+              />
+            </div>
+          </fieldset>
         </div>
 
         <button
@@ -127,6 +136,33 @@ export default function AgencyProfilePage() {
         </button>
       </form>
     </OnboardingShell>
+  );
+}
+
+function BusinessTypeCard({ checked, title, description, onSelect }: {
+  checked: boolean;
+  title: string;
+  description: string;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={checked}
+      onClick={onSelect}
+      className={`min-h-28 rounded-2xl border p-4 text-left transition ${
+        checked
+          ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-100"
+          : "border-slate-200 bg-white hover:border-slate-300"
+      }`}
+    >
+      <span className="flex items-center gap-2 text-sm font-black text-slate-900">
+        <span className={`h-4 w-4 rounded-full border-4 ${checked ? "border-emerald-600" : "border-slate-300"}`} />
+        {title}
+      </span>
+      <span className="mt-2 block text-sm leading-5 text-slate-600">{description}</span>
+    </button>
   );
 }
 

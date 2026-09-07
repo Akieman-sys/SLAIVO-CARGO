@@ -28,6 +28,23 @@ describe("product navigation", () => {
     expect(routes.some((route) => route.href === "/app/pricing")).toBe(true);
   });
 
+  it("exposes only the agreed parcel and freight agency modules", () => {
+    const routes = getAppNavigation(PRODUCT_PROFILES.PARCEL_FREIGHT).flatMap((group) => group.routes);
+
+    expect(routes.map((route) => route.href)).toEqual([
+      "/app/clients",
+      "/app/packages",
+      "/app/departures",
+      "/app/finance",
+      "/app/inbox",
+      "/app/tracking",
+      "/app/knowledge",
+      "/app/settings",
+    ]);
+    expect(routes.some((route) => route.href === "/app/broadcasts")).toBe(false);
+    expect(routes.some((route) => route.href === "/app/routes")).toBe(false);
+  });
+
   it("continues to filter visible routes by permission", () => {
     const dossier = getAppNavigation(PRODUCT_PROFILES.PILOT_V1)
       .flatMap((group) => group.routes)

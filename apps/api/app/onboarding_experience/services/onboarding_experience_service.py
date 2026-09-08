@@ -1,3 +1,5 @@
+from fastapi import HTTPException
+
 from app.onboarding_experience.repositories.onboarding_experience_repository import (
     complete_journey,
     get_or_create_journey,
@@ -55,6 +57,8 @@ def complete_step(
         step_key=step_key,
         status="COMPLETED",
     )
+    if not step:
+        raise HTTPException(status_code=404, detail="onboarding_step_not_found")
 
     record_step_event(
         org_id=org_id,
@@ -66,19 +70,25 @@ def complete_step(
     )
 
     steps = list_steps(org_id, journey["id"])
-    next_step = next(
-        (item for item in steps if item["status"] == "PENDING"),
+    active_step = next(
+        (item for item in steps if item["status"] == "IN_PROGRESS"),
         None,
     )
 
-    if next_step:
+    if not active_step:
+        next_step = next(
+            (item for item in steps if item["status"] == "PENDING"),
+            None,
+        )
+
+    if not active_step and next_step:
         update_step_status(
             org_id=org_id,
             journey_id=journey["id"],
             step_key=next_step["step_key"],
             status="IN_PROGRESS",
         )
-    else:
+    elif not active_step:
         complete_journey(org_id, journey["id"])
 
     return get_experience_state(org_id, user_id)
@@ -107,26 +117,23 @@ def build_smart_warnings(steps: list[dict]):
     statuses = {step["step_key"]: step["status"] for step in steps}
     warnings = []
 
-    if statuses.get("WAREHOUSES") != "COMPLETED":
+    if statuses.get("OPERATIONS") != "COMPLETED":
         warnings.append(
             {
-                "key": "NO_WAREHOUSE",
-                "title": "No warehouse configured",
-                "message": (
-                    "Your agency cannot receive parcels until at least one "
-                    "warehouse is configured."
-                ),
+                "key": "OPERATIONS_INCOMPLETE",
+                "title": "Site principal à compléter",
+                "message": "Ajoutez le bureau, dépôt ou entrepôt principal de votre agence.",
                 "severity": "HIGH",
             }
         )
 
-    if statuses.get("PRICING") != "COMPLETED":
+    if statuses.get("AI_KNOWLEDGE") != "COMPLETED":
         warnings.append(
             {
-                "key": "NO_PRICING",
-                "title": "No pricing configured",
-                "message": "Quotes cannot be generated until pricing is configured.",
-                "severity": "HIGH",
+                "key": "AI_NOT_CONFIGURED",
+                "title": "Réponses clients à configurer",
+                "message": "Choisissez le mode de réponse de l’IA et ajoutez au moins une information utile.",
+                "severity": "MEDIUM",
             }
         )
 
@@ -134,11 +141,8 @@ def build_smart_warnings(steps: list[dict]):
         warnings.append(
             {
                 "key": "WHATSAPP_NOT_CONNECTED",
-                "title": "WhatsApp is not connected",
-                "message": (
-                    "Customers cannot communicate with your agency through "
-                    "SLAIVIO until WhatsApp is connected."
-                ),
+                "title": "WhatsApp à connecter",
+                "message": "Connectez le numéro que l’agence utilisera pour ses conversations clients.",
                 "severity": "MEDIUM",
             }
         )

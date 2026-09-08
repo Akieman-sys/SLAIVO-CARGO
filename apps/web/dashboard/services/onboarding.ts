@@ -14,9 +14,11 @@ export type AgencyProfilePayload = {
   business_type: "VEHICLE_IMPORT" | "PARCEL_FREIGHT";
 };
 
+export type AgencyProfile = AgencyProfilePayload & { id: string; org_id: string };
+
 export async function getOnboardingStatus() {
-  const response = await api.get("/api/onboarding/status");
-  return response.data.onboarding;
+  const response = await api.get<{ onboarding: Record<string, unknown>; profile: AgencyProfile | null }>("/api/onboarding/status");
+  return response.data;
 }
 
 export async function saveAgencyProfile(data: AgencyProfilePayload) {

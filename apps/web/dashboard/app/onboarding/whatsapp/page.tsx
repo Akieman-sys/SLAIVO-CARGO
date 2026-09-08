@@ -1,15 +1,27 @@
-import { StepRedirectCard } from "@/components/onboarding/StepRedirectCard";
+"use client";
 
-export default function WhatsappOnboardingStep() {
-  return (
-    <StepRedirectCard
-      eyebrow="WhatsApp"
-      title="Connectez WhatsApp Business officiel."
-      description="Cette étape active les conversations client, webhooks, routage multi-numéro et opérations WhatsApp."
-      primaryHref="/app"
-      primaryLabel="Connecter WhatsApp"
-      completeStepKey="WHATSAPP"
-      nextHref="/onboarding/review"
-    />
-  );
+import { useEffect, useState } from "react";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { Check, RefreshCw, ShieldCheck, Smartphone } from "lucide-react";
+
+import { OnboardingError, OnboardingFooter, OnboardingHeading, OnboardingLoading, OnboardingShell, onboardingPrimaryButtonClass } from "@/components/onboarding/OnboardingShell";
+import { useOnboardingState } from "@/components/onboarding/use-onboarding-state";
+import { completeOnboardingStep } from "@/services/onboarding-experience";
+import { getPilotSettings, getPilotWhatsappQRStatus, startPilotWhatsappQR, type PilotQRConnection } from "@/services/organization-admin";
+
+export default function WhatsappOnboardingPage(){
+  const router=useRouter(); const {state,error:stateError,reload}=useOnboardingState();
+  const [connection,setConnection]=useState<PilotQRConnection|null>(null); const [available,setAvailable]=useState(true); const [accepted,setAccepted]=useState(false); const [busy,setBusy]=useState(false); const [error,setError]=useState("");
+  useEffect(()=>{Promise.all([getPilotSettings(),getPilotWhatsappQRStatus()]).then(([settings,current])=>{setAvailable(settings.whatsapp_configuration.qr_linked_device_available);const connected=settings.whatsapp_numbers.find(item=>item.connection_status==="CONNECTED");setConnection(current||(connected?{status:"CONNECTED",display_phone_number:connected.display_phone_number}:null));}).catch(()=>setError("L’état de WhatsApp ne peut pas être chargé."));},[]);
+  useEffect(()=>{if(!connection||connection.status==="CONNECTED"||!["CREATED","CONNECTING","QR_READY"].includes(connection.status))return;const timer=window.setInterval(()=>{getPilotWhatsappQRStatus().then(current=>current&&setConnection(current)).catch(()=>undefined);},2500);return()=>window.clearInterval(timer);},[connection]);
+  async function generate(){setBusy(true);setError("");try{setConnection(await startPilotWhatsappQR(accepted));}catch{setError("Le QR code ne peut pas être généré. Vérifiez la configuration du gateway WhatsApp.");}finally{setBusy(false)}}
+  async function next(){setBusy(true);setError("");try{await completeOnboardingStep("WHATSAPP");router.push("/onboarding/ai-knowledge");}catch{setError("Impossible de continuer pour le moment.");setBusy(false)}}
+  if(!state)return stateError?<OnboardingError message={stateError} retry={()=>void reload()}/>:<OnboardingLoading/>;
+  const connected=connection?.status==="CONNECTED";
+  return <OnboardingShell state={state} currentStep="WHATSAPP"><OnboardingHeading eyebrow="Étape 3 sur 5" title="Connectez le WhatsApp de l’agence" description="Les nouveaux messages arriveront dans SLAIVIO. Votre équipe pourra répondre depuis la messagerie et retrouver les échanges liés aux clients."/>
+    <div className="grid gap-8 md:grid-cols-[1fr_320px]"><section><ol className="space-y-5">{[["1","Ouvrez WhatsApp sur le téléphone de l’agence"],["2","Allez dans Appareils connectés"],["3","Choisissez Connecter un appareil et scannez le code"]].map(([number,label])=><li key={number} className="flex items-center gap-4"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#f0efff] text-[12px] font-semibold text-[#5548e7]">{number}</span><span className="text-[14px] text-[#3e4952]">{label}</span></li>)}</ol><div className="mt-7 rounded-[8px] bg-[#fff9eb] p-4 text-[12px] leading-5 text-[#695a2d]"><p className="flex items-center gap-2 font-semibold"><ShieldCheck size={15}/>Autorisation de l’entreprise</p><p className="mt-1">Connectez uniquement un numéro que vous êtes autorisé à administrer. Ne partagez jamais le QR code.</p></div></section>
+      <section className="grid min-h-[320px] place-items-center rounded-[10px] border border-[#e1e5e8] bg-[#fafbfb] p-5 text-center">{connected?<div><span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#e5f7ee] text-[#128352]"><Check size={27}/></span><p className="mt-4 text-[15px] font-semibold">WhatsApp est connecté</p><p className="mt-1 text-[12px] text-[#748089]">{connection?.display_phone_number||"Le numéro de l’agence est prêt."}</p></div>:connection?.qr_data_url?<div><Image unoptimized src={connection.qr_data_url} width={250} height={250} alt="QR code WhatsApp" className="h-[250px] w-[250px] bg-white"/><button onClick={generate} className="mt-3 inline-flex items-center gap-2 text-[12px] font-semibold text-[#5548e7]"><RefreshCw size={13}/>Renouveler le code</button></div>:<div><Smartphone size={30} className="mx-auto text-[#6d7780]"/><p className="mt-3 text-[14px] font-semibold">QR code WhatsApp</p><p className="mt-2 text-[12px] leading-5 text-[#758089]">{available?"Confirmez l’autorisation pour afficher le code.":"Le gateway QR doit être configuré avant cette étape."}</p><label className="mx-auto mt-4 flex max-w-[250px] items-start gap-2 text-left text-[11px] leading-4 text-[#626d75]"><input type="checkbox" checked={accepted} onChange={e=>setAccepted(e.target.checked)} className="mt-0.5 accent-[#5548e7]"/>Je confirme être autorisé à connecter ce numéro.</label><button onClick={generate} disabled={!available||!accepted||busy} className={`${onboardingPrimaryButtonClass} mt-4`}>{busy?"Préparation…":"Afficher le QR code"}</button></div>}</section></div>
+    {error&&<p role="alert" className="mt-6 rounded-[7px] bg-[#fff3f1] px-4 py-3 text-[13px] text-[#a33a32]">{error}</p>}<OnboardingFooter backHref="/onboarding/operations"><button onClick={next} disabled={!connected||busy} className={onboardingPrimaryButtonClass}>Continuer</button></OnboardingFooter>
+  </OnboardingShell>;
 }

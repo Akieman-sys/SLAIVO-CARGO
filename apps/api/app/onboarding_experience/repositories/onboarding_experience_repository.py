@@ -6,19 +6,13 @@ from app.db.database import engine
 
 
 ONBOARDING_STEPS = [
-    ("WELCOME", "Welcome", 1, True),
-    ("AGENCY_PROFILE", "Agency Profile", 2, True),
-    ("WORKSPACES", "Offices / Workspaces", 3, True),
-    ("WAREHOUSES", "Warehouses", 4, True),
-    ("ROUTES", "Routes", 5, True),
-    ("SHIPPING_SERVICES", "Shipping Services", 6, True),
-    ("PRICING", "Pricing", 7, True),
-    ("GOODS_RULES", "Goods Rules", 8, True),
-    ("NOTIFICATIONS", "Notifications", 9, True),
-    ("TEAM", "Team", 10, False),
-    ("WHATSAPP", "WhatsApp", 11, True),
-    ("REVIEW", "Review", 12, True),
-    ("GO_LIVE", "Go Live", 13, True),
+    ("WELCOME", "Bienvenue", 1, True),
+    ("AGENCY_PROFILE", "Entreprise", 2, True),
+    ("OPERATIONS", "Opérations", 3, True),
+    ("WHATSAPP", "WhatsApp", 4, True),
+    ("AI_KNOWLEDGE", "IA et connaissances", 5, True),
+    ("REVIEW", "Vérification", 6, True),
+    ("GO_LIVE", "Terminé", 7, True),
 ]
 
 
@@ -39,7 +33,7 @@ def fetch_all(query: str, params: dict):
         return [dict(row._mapping) for row in rows]
 
 
-def get_or_create_journey(org_id: str, journey_version: str = "v1"):
+def get_or_create_journey(org_id: str, journey_version: str = "v2"):
     existing = fetch_one(
         """
         select *

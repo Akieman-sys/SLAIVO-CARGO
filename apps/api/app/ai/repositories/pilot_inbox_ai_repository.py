@@ -92,6 +92,52 @@ def conversation_ai_context(org_id: str, client_phone: str) -> dict | None:
             order by created_at desc limit 12
           ) recent order by created_at
         """), {"org_id": org_id, "phone": client_phone}).mappings()]
+        context["packages"] = []
+        context["finance_summary"] = None
+        is_parcel_agency = conn.execute(text("""
+          select organization_type='PARCEL_FREIGHT'
+          from organizations where id=:org_id
+        """), {"org_id": org_id}).scalar()
+        if context.get("client_id") and is_parcel_agency and conn.execute(
+            text("select to_regclass('public.cargo_packages')")
+        ).scalar():
+            has_departures = bool(conn.execute(text("""
+              select to_regclass('public.departure_package_allocations') is not null
+                 and to_regclass('public.cargo_departures') is not null
+            """)).scalar())
+            departure_columns = "null::text departure_code, null::timestamptz departure_scheduled_at, null::text departure_status"
+            departure_join = ""
+            if has_departures:
+                departure_columns = "departure.departure_code, departure.scheduled_at departure_scheduled_at, departure.status departure_status"
+                departure_join = """
+                  left join lateral (
+                    select d.departure_code,d.scheduled_at,d.status
+                    from departure_package_allocations allocation
+                    join cargo_departures d on d.id=allocation.departure_id and d.org_id=allocation.org_id
+                    where allocation.org_id=package.org_id and allocation.package_id=package.id
+                      and allocation.status<>'REMOVED'
+                    order by allocation.created_at desc limit 1
+                  ) departure on true
+                """
+            context["packages"] = [dict(item) for item in conn.execute(text(f"""
+              select package.package_reference,package.tracking_id,package.status,
+                     package.destination_city,package.destination_country,package.eta_at,
+                     package.received_at,package.dispatched_at,package.delivered_at,
+                     package.last_scan_location,{departure_columns}
+              from cargo_packages package
+              {departure_join}
+              where package.org_id=:org_id and package.client_id=:client_id
+                and package.deleted_at is null
+              order by package.updated_at desc limit 10
+            """), {"org_id": org_id, "client_id": context["client_id"]}).mappings()]
+        if (context.get("client_id") and is_parcel_agency and
+                conn.execute(text("select to_regclass('public.finance_documents')")).scalar()):
+            context["finance_summary"] = dict(conn.execute(text("""
+              select coalesce(sum(balance_due) filter(where status not in ('VOID','PAID')),0) balance_due,
+                     coalesce(sum(amount_paid),0) amount_paid, max(currency) currency
+              from finance_documents
+              where org_id=:org_id and client_id=:client_id
+            """), {"org_id": org_id, "client_id": context["client_id"]}).mappings().one())
         return context
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from math import ceil
 from threading import Lock
@@ -33,6 +33,65 @@ PACKAGE_STATUSES = {
 PACKAGE_STATUSES.update({"PENDING_VALIDATION","CONFIRMED","RECEIVED","WAREHOUSED","READY_FOR_BATCH","BATCHED","SHIPPED","ARRIVED","CLEARED","RETURNED"})
 
 OFFICIAL_TRANSITIONS={"CREATED":{"PENDING_VALIDATION","CONFIRMED","CANCELLED"},"PENDING_VALIDATION":{"CONFIRMED","BLOCKED","CANCELLED"},"CONFIRMED":{"RECEIVED","CANCELLED"},"RECEIVED":{"WAREHOUSED","BLOCKED"},"WAREHOUSED":{"READY_FOR_BATCH","BLOCKED"},"READY_FOR_BATCH":{"BATCHED","BLOCKED"},"BATCHED":{"SHIPPED","READY_FOR_BATCH"},"SHIPPED":{"IN_TRANSIT"},"IN_TRANSIT":{"ARRIVED","BLOCKED"},"ARRIVED":{"CLEARED","BLOCKED"},"CLEARED":{"READY_FOR_PICKUP"},"READY_FOR_PICKUP":{"DELIVERED"},"BLOCKED":{"CONFIRMED","WAREHOUSED","READY_FOR_BATCH","CANCELLED","RETURNED"}}
+
+CUSTOMER_STATUS_MESSAGES = {
+    "RECEIVED": "Nous confirmons la réception de votre colis {tracking} dans notre agence.",
+    "RECEIVED_AT_ORIGIN": "Nous confirmons la réception de votre colis {tracking} à l’origine.",
+    "SHIPPED": "Votre colis {tracking} a été expédié vers {destination}.",
+    "ARRIVED": "Votre colis {tracking} est arrivé à destination ({destination}).",
+    "ARRIVED_DESTINATION": "Votre colis {tracking} est arrivé à destination ({destination}).",
+    "READY_FOR_PICKUP": "Votre colis {tracking} est disponible au retrait. Contactez l’agence pour les modalités de remise.",
+}
+
+
+def _queue_customer_status_notification(conn, package: dict, status: str, user_id: str) -> str | None:
+    template = CUSTOMER_STATUS_MESSAGES.get(status)
+    if not template or not package.get("client_id"):
+        return None
+    enabled = conn.execute(text("""
+        select 1 from organizations
+        where id=:org_id and organization_type='PARCEL_FREIGHT'
+    """), {"org_id": package["org_id"]}).first()
+    if not enabled:
+        return None
+    client = conn.execute(text("""
+        select coalesce(nullif(whatsapp_phone,''), nullif(phone,'')) phone
+        from clients where org_id=:org_id and id=:client_id and deleted_at is null
+    """), {"org_id": package["org_id"], "client_id": package["client_id"]}).mappings().first()
+    if not client or not client.get("phone"):
+        return None
+    destination = ", ".join(filter(None, [package.get("destination_city"), package.get("destination_country")])) or "sa destination"
+    tracking = package.get("tracking_id") or package.get("package_reference") or "votre colis"
+    message = template.format(tracking=tracking, destination=destination)
+    notification_type = f"PACKAGE_STATUS:{package['id']}:{status}"
+    row = conn.execute(text("""
+        insert into notification_outbox(
+          org_id,client_id,dossier_id,channel,recipient_phone,notification_type,message
+        )
+        select :org_id,:client_id,:dossier_id,'whatsapp',:phone,:notification_type,:message
+        where not exists(
+          select 1 from notification_outbox
+          where org_id=:org_id and notification_type=:notification_type
+        )
+        returning id::text
+    """), {"org_id": package["org_id"], "client_id": package["client_id"],
+             "dossier_id": package.get("dossier_id"), "phone": client["phone"],
+             "notification_type": notification_type, "message": message}).first()
+    if not row:
+        return None
+    conn.execute(text("""
+        insert into package_notifications(
+          org_id,package_id,channel,notification_type,recipient,message,status,created_by,
+          notification_outbox_id
+        ) values(
+          :org_id,:package_id,'whatsapp',:notification_type,:phone,:message,'PENDING',:user_id,
+          cast(:notification_outbox_id as uuid)
+        )
+    """), {"org_id": package["org_id"], "package_id": package["id"],
+             "notification_type": notification_type, "phone": client["phone"],
+             "message": message, "user_id": user_id,
+             "notification_outbox_id": str(row[0])})
+    return str(row[0])
 OFFICIAL_TRANSITIONS.update({
     "RECEIVED_AT_ORIGIN": {"WAREHOUSED", "BLOCKED"},
     "WAREHOUSE_PROCESSING": {"WAREHOUSED", "READY_FOR_BATCH", "BLOCKED"},
@@ -221,6 +280,9 @@ def _initialize_schema() -> None:
         "create index if not exists idx_package_media_package on package_media(org_id, package_id, created_at desc)",
         "create index if not exists idx_package_anomalies_package on package_anomalies(org_id, package_id, status)",
         "create index if not exists idx_package_notifications_package on package_notifications(org_id, package_id, created_at desc)",
+        "alter table package_notifications add column if not exists created_by text",
+        "alter table package_notifications add column if not exists notification_outbox_id uuid references notification_outbox(id) on delete set null",
+        "create unique index if not exists uq_package_notifications_outbox on package_notifications(notification_outbox_id) where notification_outbox_id is not null",
         """
         insert into cargo_packages (
           org_id, client_id, dossier_id, shipment_id, package_reference, tracking_id, source,
@@ -703,8 +765,41 @@ def get_package(org_id: str, package_id: str) -> dict | None:
         """), {"org_id": org_id, "package_id": package_id}).fetchall()]
         package["quality_controls"]=[_safe(dict(r._mapping)) for r in conn.execute(text("select * from package_quality_controls where org_id=:org_id and package_id=:package_id order by checked_at desc"),{"org_id":org_id,"package_id":package_id}).fetchall()]
         package["operational_alerts"]=[_safe(dict(r._mapping)) for r in conn.execute(text("select * from package_operational_alerts where org_id=:org_id and package_id=:package_id order by created_at desc"),{"org_id":org_id,"package_id":package_id}).fetchall()]
-    package["receipt_count"] = 0
-    return package
+        package["receipt_count"] = 0
+        return package
+
+
+def public_package_tracking(reference: str) -> dict | None:
+    """Resolve an exact public tracking number and return only customer-safe fields."""
+    normalized = str(reference or "").strip()
+    if len(normalized) < 6 or len(normalized) > 120:
+        return None
+    with engine.connect() as conn:
+        matches = conn.execute(text("""
+            select id::text, package_reference, tracking_id, status,
+                   origin_city, origin_country, destination_city, destination_country,
+                   eta_at, received_at, dispatched_at, delivered_at, last_scan_location,
+                   updated_at
+            from cargo_packages
+            where deleted_at is null and public_tracking_enabled=true
+              and (upper(tracking_id)=upper(:reference) or upper(package_reference)=upper(:reference))
+            order by updated_at desc
+            limit 2
+        """), {"reference": normalized}).fetchall()
+        # An ambiguous reference must not allow a caller to select another tenant.
+        if len(matches) != 1:
+            return None
+        package = _safe(dict(matches[0]._mapping))
+        package["events"] = [_safe(dict(row._mapping)) for row in conn.execute(text("""
+            select event_type, title, description, new_status, created_at occurred_at
+            from package_events
+            where package_id=cast(:package_id as uuid)
+              and event_type in ('PACKAGE_CREATED','PACKAGE_STATUS_CHANGED','STATUS_CHANGED')
+            order by created_at desc
+            limit 50
+        """), {"package_id": package["id"]}).fetchall()]
+        package.pop("id", None)
+        return package
 
 
 def _dossier_for_create(conn, org_id: str, dossier_id: str) -> dict | None:
@@ -833,6 +928,7 @@ def create_package(org_id: str, user_id: str, payload: dict) -> dict:
     dossier_id = payload.get("dossier_id")
     if not dossier_id:
         raise ValueError("dossier_required")
+    queued_notification_id = None
     with engine.begin() as conn:
         dossier = _dossier_for_create(conn, org_id, dossier_id)
         if not dossier:
@@ -923,7 +1019,11 @@ def create_package(org_id: str, user_id: str, payload: dict) -> dict:
                 "shipment_reference": payload.get("shipment_reference"),
                 "public_tracking_enabled": payload.get("public_tracking_enabled", True),
                 "eta_at": payload.get("eta_at"),
-                "received_at": payload.get("received_at"),
+                "received_at": payload.get("received_at") or (
+                    datetime.now(timezone.utc)
+                    if (payload.get("status") or "CREATED") in {"RECEIVED", "RECEIVED_AT_ORIGIN"}
+                    else None
+                ),
                 "dispatched_at": payload.get("dispatched_at"),
                 "delivered_at": payload.get("delivered_at"),
                 "weight_kg": payload.get("weight_kg"),
@@ -966,11 +1066,6 @@ def create_package(org_id: str, user_id: str, payload: dict) -> dict:
                 and (client_id=:client_id or :client_id is null) order by created_at limit 1) returning id"""),{"package_id":package_id,"org_id":org_id,"tracking":payload["supplier_tracking"],"client_id":dossier["client_id"]}).first()
             if expectation:
                 conn.execute(text("update cargo_packages set expectation_status='MATCHED' where org_id=:org_id and id=:package_id"),{"org_id":org_id,"package_id":package_id})
-        if (payload.get("status") or "CREATED") in ("RECEIVED","RECEIVED_AT_ORIGIN"):
-            conn.execute(text("""insert into package_notifications(org_id,package_id,channel,notification_type,recipient,message,status,created_by)
-                select :org_id,:package_id,'whatsapp','PACKAGE_RECEIVED',c.phone,
-                concat('Nous confirmons la réception de votre colis ',:reference,'. Poids : ',coalesce(cast(:weight as text),'à confirmer'),' kg. Statut : Reçu.'),'PENDING',:user_id
-                from clients c where c.org_id=:org_id and c.id=:client_id and c.phone is not null"""),{"org_id":org_id,"package_id":package_id,"reference":reference,"weight":payload.get("weight_kg"),"user_id":user_id,"client_id":dossier["client_id"]})
         _insert_package_event(
             conn,
             org_id=org_id,
@@ -981,7 +1076,18 @@ def create_package(org_id: str, user_id: str, payload: dict) -> dict:
             new_status=payload.get("status") or "CREATED",
             actor_id=user_id,
         )
-    return get_package(org_id, package_id) or {}
+        created_status = payload.get("status") or "CREATED"
+        queued_notification_id = _queue_customer_status_notification(conn, {
+            "id": package_id, "org_id": org_id, "client_id": dossier["client_id"],
+            "dossier_id": dossier_id, "package_reference": reference,
+            "tracking_id": payload.get("tracking_id") or reference,
+            "destination_city": payload.get("destination_city") or dossier.get("destination_city"),
+            "destination_country": payload.get("destination_country") or dossier.get("destination_country"),
+        }, created_status, user_id)
+    result = get_package(org_id, package_id) or {}
+    if queued_notification_id:
+        result["queued_notification_id"] = queued_notification_id
+    return result
 
 
 def update_package(org_id: str, package_id: str, user_id: str, payload: dict) -> dict | None:
@@ -1010,6 +1116,7 @@ def update_package(org_id: str, package_id: str, user_id: str, payload: dict) ->
     previous_status = existing.get("status")
     next_status = data.get("status") or previous_status
 
+    queued_notification_id = None
     with engine.begin() as conn:
         conn.execute(
             text("""
@@ -1105,7 +1212,14 @@ def update_package(org_id: str, package_id: str, user_id: str, payload: dict) ->
                 new_status=next_status,
                 actor_id=user_id,
             )
-    return get_package(org_id, package_id)
+            queued_notification_id = _queue_customer_status_notification(conn, {
+                **existing, **data, "id": package_id, "org_id": org_id,
+                "client_id": existing.get("client_id"), "dossier_id": existing.get("dossier_id"),
+            }, next_status, user_id)
+    result = get_package(org_id, package_id)
+    if result and queued_notification_id:
+        result["queued_notification_id"] = queued_notification_id
+    return result
 
 
 def export_packages(org_id: str, **kwargs) -> list[dict]:
@@ -1327,25 +1441,49 @@ def resolve_package_anomaly(org_id: str, package_id: str, anomaly_id: str, user_
 
 def create_package_notification(org_id: str, package_id: str, user_id: str, payload: dict) -> dict | None:
     _ensure_schema()
-    if not get_package(org_id, package_id):
+    package = get_package(org_id, package_id)
+    if not package:
         return None
+    queued_notification_id = None
     with engine.begin() as conn:
+        channel = payload.get("channel") or "whatsapp"
+        recipient = payload.get("recipient")
+        if not recipient and package.get("client_id"):
+            recipient = conn.execute(text("""
+                select coalesce(nullif(whatsapp_phone,''), nullif(phone,''))
+                from clients where org_id=:org_id and id=:client_id and deleted_at is null
+            """), {"org_id": org_id, "client_id": package["client_id"]}).scalar()
+        notification_type = payload.get("notification_type") or f"PACKAGE_MANUAL:{package_id}:{uuid4()}"
+        if channel == "whatsapp" and recipient:
+            queued = conn.execute(text("""
+                insert into notification_outbox(
+                  org_id,client_id,dossier_id,channel,recipient_phone,notification_type,message
+                ) values(:org_id,:client_id,:dossier_id,'whatsapp',:recipient,:notification_type,:message)
+                returning id::text
+            """), {"org_id": org_id, "client_id": package.get("client_id"),
+                     "dossier_id": package.get("dossier_id"), "recipient": recipient,
+                     "notification_type": notification_type, "message": payload["message"]}).first()
+            queued_notification_id = str(queued[0]) if queued else None
         conn.execute(
             text("""
                 insert into package_notifications (
-                    org_id, package_id, channel, notification_type, recipient, message, status
+                    org_id, package_id, channel, notification_type, recipient, message, status,
+                    created_by, notification_outbox_id
                 )
                 values (
-                    :org_id, :package_id, :channel, :notification_type, :recipient, :message, 'PENDING'
+                    :org_id, :package_id, :channel, :notification_type, :recipient, :message,
+                    'PENDING', :created_by, cast(:notification_outbox_id as uuid)
                 )
             """),
             {
                 "org_id": org_id,
                 "package_id": package_id,
-                "channel": payload.get("channel") or "whatsapp",
-                "notification_type": payload.get("notification_type") or "PACKAGE_UPDATE",
-                "recipient": payload.get("recipient"),
+                "channel": channel,
+                "notification_type": notification_type,
+                "recipient": recipient,
                 "message": payload["message"],
+                "created_by": user_id,
+                "notification_outbox_id": queued_notification_id,
             },
         )
         _insert_package_event(
@@ -1357,7 +1495,10 @@ def create_package_notification(org_id: str, package_id: str, user_id: str, payl
             description=payload["message"],
             actor_id=user_id,
         )
-    return get_package(org_id, package_id)
+    result = get_package(org_id, package_id)
+    if result and queued_notification_id:
+        result["queued_notification_id"] = queued_notification_id
+    return result
 
 
 def move_package(org_id: str, package_id: str, user_id: str, payload: dict) -> dict | None:
@@ -1502,6 +1643,7 @@ def package_timeline(org_id: str, package_id: str, *, limit: int = 80) -> list[d
     )[:limit]
 
 def transition_package(org_id,package_id,user_id,new_status,expected_version,reason=None):
+    queued_notification_id=None
     with engine.begin() as conn:
         row=conn.execute(text("select * from cargo_packages where org_id=:o and id=:id and deleted_at is null for update"),{"o":org_id,"id":package_id}).mappings().first()
         if not row:raise HTTPException(404,"package_not_found")
@@ -1511,7 +1653,10 @@ def transition_package(org_id,package_id,user_id,new_status,expected_version,rea
         if new_status in("WAREHOUSED","READY_FOR_BATCH") and not row.get("weight_kg"):raise HTTPException(409,"package_weight_required")
         item=conn.execute(text("update cargo_packages set status=:s,row_version=row_version+1,updated_by=:u,updated_at=now(),received_at=case when :s='RECEIVED' then coalesce(received_at,now()) else received_at end,dispatched_at=case when :s='SHIPPED' then coalesce(dispatched_at,now()) else dispatched_at end,delivered_at=case when :s='DELIVERED' then coalesce(delivered_at,now()) else delivered_at end where org_id=:o and id=:id returning *"),{"s":new_status,"u":user_id,"o":org_id,"id":package_id}).mappings().one()
         _insert_package_event(conn,org_id=org_id,package_id=package_id,event_type="STATUS_CHANGED",title=f"Statut : {new_status}",description=reason,previous_status=row["status"],new_status=new_status,actor_id=user_id,metadata={"version":item["row_version"]})
-    return get_package(org_id,package_id)
+        queued_notification_id=_queue_customer_status_notification(conn,dict(item),new_status,user_id)
+    result=get_package(org_id,package_id)
+    if result and queued_notification_id:result["queued_notification_id"]=queued_notification_id
+    return result
 
 def quality_control(org_id,package_id,user_id,payload):
     with engine.begin() as conn:

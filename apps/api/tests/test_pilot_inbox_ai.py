@@ -37,6 +37,7 @@ def test_automatic_reply_rejects_unsupported_numbers_and_promises():
     assert _grounding_check("Le délai est de 8 à 12 jours.", knowledge)[0] is True
     assert _grounding_check("Le délai est de 5 jours.", knowledge) == (False, "information_chiffree_non_sourcee")
     assert _grounding_check("La livraison est garantie.", knowledge) == (False, "promesse_non_autorisee")
+    assert _grounding_check("Votre colis TRK-804 est arrivé.", [], "Colis TRK-804 : statut=ARRIVED") == (True, None)
 
 
 def test_pilot_ai_uses_only_published_client_knowledge_and_provider_abstraction():
@@ -49,6 +50,8 @@ def test_pilot_ai_uses_only_published_client_knowledge_and_provider_abstraction(
     assert "PUBLIC" in knowledge
     assert "eligible_for_auto" in service
     assert "pilot-ai:{org_id}:{event_key}" in service
+    assert "DONNÉES OPÉRATIONNELLES ACTUELLES DU CLIENT" in service
+    assert "cargo_packages" in read("apps/api/app/ai/repositories/pilot_inbox_ai_repository.py")
 
 
 def test_settings_endpoint_uses_active_tenant_and_validated_mode(monkeypatch):

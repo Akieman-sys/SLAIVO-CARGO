@@ -533,7 +533,7 @@ export function PackagesPage() {
         form.get("dossier_id") || formPackage?.dossier_id || "",
       ),
       tracking_id: clean(form.get("tracking_id")),
-      status: String(form.get("status") || "CREATED") as PackageStatus,
+      status: String(form.get("status") || "RECEIVED_AT_ORIGIN") as PackageStatus,
       package_condition: String(
         form.get("package_condition") || "UNKNOWN",
       ) as PackageCondition,
@@ -688,6 +688,10 @@ export function PackagesPage() {
           description="Réceptionnez, mesurez, stockez et suivez chaque colis réel. Chaque ligne reste liée à un dossier client pour garder une traçabilité complète."
           actions={
             <>
+              <OperationButton onClick={() => window.open("/track", "_blank", "noopener,noreferrer")}>
+                <PackageSearch size={14} />
+                Suivi client
+              </OperationButton>
               <OperationActionMenu>
                   <button
                     onClick={() => setScanOpen(true)}
@@ -2965,7 +2969,7 @@ function PackageFormModal({
                 <SelectInput
                   name="status"
                   label="Statut"
-                  defaultValue={item?.status || "CREATED"}
+                  defaultValue={item?.status || "RECEIVED_AT_ORIGIN"}
                   options={statusLabels}
                 />
                 <SelectInput

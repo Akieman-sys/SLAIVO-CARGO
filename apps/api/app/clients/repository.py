@@ -948,6 +948,57 @@ def client_timeline(org_id: str, client_id: str, *, limit: int = 50) -> list[dic
                     }
                 )
 
+        if _table_exists(conn, "cargo_packages"):
+            rows = conn.execute(
+                text("""
+                    select id::text, package_reference, tracking_id, status,
+                           destination_city, destination_country, created_at, updated_at
+                    from cargo_packages
+                    where org_id=:org_id and client_id=cast(:client_id as uuid)
+                      and deleted_at is null
+                    order by updated_at desc
+                    limit 30
+                """),
+                {"org_id": org_id, "client_id": client_id},
+            ).fetchall()
+            for row in rows:
+                item = dict(row._mapping)
+                destination = ", ".join(filter(None, [item.get("destination_city"), item.get("destination_country")]))
+                events.append({
+                    "id": f"package-{item['id']}",
+                    "type": "package",
+                    "title": "Colis mis à jour",
+                    "description": f"{item.get('tracking_id') or item.get('package_reference') or 'Colis'} · {item.get('status') or 'UNKNOWN'}{f' · {destination}' if destination else ''}",
+                    "occurred_at": item.get("updated_at") or item.get("created_at"),
+                    "metadata": {"package_id": item.get("id"), "status": item.get("status")},
+                })
+
+        if _table_exists(conn, "finance_payments") and _table_exists(conn, "finance_documents"):
+            rows = conn.execute(
+                text("""
+                    select payment.id::text, payment.amount, payment.currency, payment.status,
+                           payment.receipt_number, payment.paid_at, document.document_number
+                    from finance_payments payment
+                    join finance_documents document on document.id=payment.document_id
+                      and document.org_id=payment.org_id
+                    where payment.org_id=:org_id
+                      and document.client_id=cast(:client_id as uuid)
+                    order by payment.paid_at desc
+                    limit 30
+                """),
+                {"org_id": org_id, "client_id": client_id},
+            ).fetchall()
+            for row in rows:
+                item = dict(row._mapping)
+                events.append({
+                    "id": f"payment-{item['id']}",
+                    "type": "payment",
+                    "title": "Paiement enregistré",
+                    "description": f"{item.get('amount') or 0} {item.get('currency') or ''} · {item.get('document_number') or item.get('receipt_number') or 'Paiement'}",
+                    "occurred_at": item.get("paid_at"),
+                    "metadata": {"status": item.get("status"), "receipt_number": item.get("receipt_number")},
+                })
+
         if _table_exists(conn, "messages_raw"):
             rows = conn.execute(
                 text("""
@@ -999,6 +1050,104 @@ def client_timeline(org_id: str, client_id: str, *, limit: int = 50) -> list[dic
     events = [_safe(event) for event in events if event.get("occurred_at")]
     events.sort(key=lambda event: event.get("occurred_at") or "", reverse=True)
     return events[: min(max(limit, 1), 100)]
+
+
+def client_workspace(org_id: str, client_id: str) -> dict | None:
+    """Return the operational 360° view without leaking data across agencies."""
+    client = get_client(org_id, client_id)
+    if not client:
+        return None
+
+    packages: list[dict] = []
+    messages: list[dict] = []
+    documents: list[dict] = []
+    payments: list[dict] = []
+    with engine.connect() as conn:
+        if (_table_exists(conn, "cargo_packages") and
+                _table_exists(conn, "departure_package_allocations") and
+                _table_exists(conn, "cargo_departures")):
+            packages = [_safe(dict(row._mapping)) for row in conn.execute(text("""
+                select p.id::text, p.package_reference, p.tracking_id, p.status,
+                       p.weight_kg, p.destination_city, p.destination_country,
+                       p.received_at, p.dispatched_at, p.delivered_at, p.updated_at,
+                       departure.id::text departure_id, departure.departure_code,
+                       departure.scheduled_at departure_scheduled_at,
+                       departure.status departure_status
+                from cargo_packages p
+                left join lateral (
+                    select d.id, d.departure_code, d.scheduled_at, d.status
+                    from departure_package_allocations allocation
+                    join cargo_departures d on d.id=allocation.departure_id
+                      and d.org_id=allocation.org_id
+                    where allocation.org_id=p.org_id and allocation.package_id=p.id
+                      and allocation.status<>'REMOVED'
+                    order by allocation.created_at desc
+                    limit 1
+                ) departure on true
+                where p.org_id=:org_id and p.client_id=cast(:client_id as uuid)
+                  and p.deleted_at is null
+                order by p.updated_at desc
+                limit 100
+            """), {"org_id": org_id, "client_id": client_id}).fetchall()]
+
+        if _table_exists(conn, "messages"):
+            messages = [_safe(dict(row._mapping)) for row in conn.execute(text("""
+                select id::text, direction, text_body, message_type, send_status,
+                       error_message, from_phone, to_phone, sender_name, is_group,
+                       media_mime_type, media_file_name, created_at
+                from messages
+                where org_id=:org_id and client_id=cast(:client_id as uuid)
+                  and coalesce(sender_jid, '') not like '%@newsletter'
+                  and coalesce(conversation_jid, '') not like '%@newsletter'
+                order by created_at desc
+                limit 100
+            """), {"org_id": org_id, "client_id": client_id}).fetchall()]
+
+        if _table_exists(conn, "finance_documents"):
+            documents = [_safe(dict(row._mapping)) for row in conn.execute(text("""
+                select id::text, document_type, document_number, status, currency,
+                       total, amount_paid, balance_due, issue_date, due_date, created_at
+                from finance_documents
+                where org_id=:org_id and client_id=cast(:client_id as uuid)
+                order by created_at desc
+                limit 100
+            """), {"org_id": org_id, "client_id": client_id}).fetchall()]
+
+        if _table_exists(conn, "finance_payments") and _table_exists(conn, "finance_documents"):
+            payments = [_safe(dict(row._mapping)) for row in conn.execute(text("""
+                select payment.id::text, payment.receipt_number, payment.amount,
+                       payment.currency, payment.method, payment.reference,
+                       payment.paid_at, payment.status,
+                       document.id::text document_id, document.document_number
+                from finance_payments payment
+                join finance_documents document on document.id=payment.document_id
+                  and document.org_id=payment.org_id
+                where payment.org_id=:org_id
+                  and document.client_id=cast(:client_id as uuid)
+                order by payment.paid_at desc
+                limit 100
+            """), {"org_id": org_id, "client_id": client_id}).fetchall()]
+
+    outstanding = sum(float(item.get("balance_due") or 0) for item in documents
+                      if item.get("status") not in {"VOID", "PAID"})
+    paid = sum(float(item.get("amount") or 0) for item in payments
+               if item.get("status") == "CONFIRMED")
+    return {
+        "client": client,
+        "packages": packages,
+        "messages": messages,
+        "documents": documents,
+        "payments": payments,
+        "summary": {
+            "packages": len(packages),
+            "active_packages": sum(1 for item in packages if item.get("status") not in {"DELIVERED", "CANCELLED", "RETURNED"}),
+            "messages": len(messages),
+            "documents": len(documents),
+            "payments": len(payments),
+            "outstanding": round(outstanding, 2),
+            "paid": round(paid, 2),
+        },
+    }
 
 
 def export_clients(org_id: str, *, limit: int = 50_001, **filters) -> list[dict]:

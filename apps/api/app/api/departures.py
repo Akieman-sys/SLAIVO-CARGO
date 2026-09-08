@@ -1,9 +1,10 @@
 from datetime import datetime
-from fastapi import APIRouter,Depends,Response
+from fastapi import APIRouter,BackgroundTasks,Depends,Response
 from pydantic import BaseModel,Field
 from app.core.permissions import require_permission
 from app.core.tenant_context import get_current_tenant
 from app.departures import repository as repo
+from app.services.notification_sender import send_notification
 router=APIRouter(prefix='/departures',tags=['departures'])
 def aid(t):return str(t.get('user_id') or 'system')
 def aname(t):return str(t.get('actor_name') or "Membre de l'agence")
@@ -48,4 +49,7 @@ def create(body:Create,tenant=Depends(get_current_tenant),_=Depends(require_perm
 @router.post('/{departure_id}/allocations')
 def allocate(departure_id:str,body:Allocate,tenant=Depends(get_current_tenant),_=Depends(require_permission('departures.allocate'))):return repo.allocate(tenant['org_id'],departure_id,aid(tenant),aname(tenant),body.model_dump())
 @router.post('/{departure_id}/transition')
-def transition(departure_id:str,body:Transition,tenant=Depends(get_current_tenant),_=Depends(require_permission('departures.dispatch'))):return repo.transition(tenant['org_id'],departure_id,aid(tenant),aname(tenant),body.status,body.expected_version,body.reason)
+def transition(departure_id:str,body:Transition,background_tasks:BackgroundTasks,tenant=Depends(get_current_tenant),_=Depends(require_permission('departures.dispatch'))):
+ result=repo.transition(tenant['org_id'],departure_id,aid(tenant),aname(tenant),body.status,body.expected_version,body.reason)
+ for notification_id in result.pop('_queued_notification_ids',[]):background_tasks.add_task(send_notification,tenant['org_id'],notification_id)
+ return result

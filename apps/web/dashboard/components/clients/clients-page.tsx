@@ -12,10 +12,8 @@ import {
   Import,
   Mail,
   MessageCircle,
-  Package,
   Phone,
   Search,
-  ShieldAlert,
   Truck,
   Upload,
   UserRound,
@@ -55,6 +53,7 @@ import {
   getClient,
   getClientStats,
   getClientTimeline,
+  getClientWorkspace,
   importClients,
   listClients,
   listArchivedClients,
@@ -70,6 +69,7 @@ import {
   type ClientSource,
   type ClientStats,
   type ClientTimelineEvent,
+  type ClientWorkspace,
 } from "@/services/clients";
 
 const statusLabels: Record<ClientLifecycleStatus, string> = {
@@ -168,6 +168,7 @@ export function ClientsPage() {
   });
   const [selected, setSelected] = useState<ClientRecord | null>(null);
   const [timeline, setTimeline] = useState<ClientTimelineEvent[]>([]);
+  const [workspace, setWorkspace] = useState<ClientWorkspace | null>(null);
   const [duplicates, setDuplicates] = useState<ClientDuplicate[]>([]);
   const [activeTab, setActiveTab] = useState<DetailTab>("summary");
   const [activeView, setActiveView] =
@@ -180,6 +181,7 @@ export function ClientsPage() {
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [timelineLoading, setTimelineLoading] = useState(false);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [duplicatesLoading, setDuplicatesLoading] = useState(false);
   const [mergingDuplicateId, setMergingDuplicateId] = useState<string | null>(
     null,
@@ -223,6 +225,7 @@ export function ClientsPage() {
   useEffect(() => {
     if (!selected) return;
     if (activeTab === "history") loadTimeline(selected.id);
+    if (["operations", "messages", "payments"].includes(activeTab)) loadWorkspace(selected.id);
     if (activeTab === "duplicates") loadDuplicates(selected);
   }, [activeTab, selected]);
 
@@ -339,6 +342,7 @@ export function ClientsPage() {
     setActiveTab("summary");
     setDetailLoading(true);
     setTimeline([]);
+    setWorkspace(null);
     setDuplicates([]);
     try {
       const [detail, detectedDuplicates] = await Promise.all([
@@ -362,6 +366,17 @@ export function ClientsPage() {
       setTimeline([]);
     } finally {
       setTimelineLoading(false);
+    }
+  }
+
+  async function loadWorkspace(clientId: string) {
+    setWorkspaceLoading(true);
+    try {
+      setWorkspace(await getClientWorkspace(clientId));
+    } catch {
+      setWorkspace(null);
+    } finally {
+      setWorkspaceLoading(false);
     }
   }
 
@@ -700,6 +715,8 @@ export function ClientsPage() {
           onTabChange={setActiveTab}
           timeline={timeline}
           timelineLoading={timelineLoading}
+          workspace={workspace}
+          workspaceLoading={workspaceLoading}
           duplicates={duplicates}
           duplicatesLoading={duplicatesLoading}
           mergingDuplicateId={mergingDuplicateId}
@@ -847,6 +864,8 @@ function ClientDetails({
   onTabChange,
   timeline,
   timelineLoading,
+  workspace,
+  workspaceLoading,
   duplicates,
   duplicatesLoading,
   mergingDuplicateId,
@@ -864,6 +883,8 @@ function ClientDetails({
   onTabChange: (tab: DetailTab) => void;
   timeline: ClientTimelineEvent[];
   timelineLoading: boolean;
+  workspace: ClientWorkspace | null;
+  workspaceLoading: boolean;
   duplicates: ClientDuplicate[];
   duplicatesLoading: boolean;
   mergingDuplicateId: string | null;
@@ -957,21 +978,9 @@ function ClientDetails({
       bodyClassName={loading ? "opacity-60" : ""}
     >
             {activeTab === "summary" && <SummaryTab client={client} />}
-            {activeTab === "operations" && <OperationsTab client={client} />}
-            {activeTab === "messages" && (
-              <ModulePlaceholder
-                icon={MessageCircle}
-                title="Messages client"
-                text="Cette vue affichera les conversations WhatsApp, emails et messages liés à ce client lorsque le module Communication les aura synchronisés."
-              />
-            )}
-            {activeTab === "payments" && (
-              <ModulePlaceholder
-                icon={ShieldAlert}
-                title="Paiements client"
-                text="Cette vue affichera les factures, paiements reçus, soldes et relances provenant du module Finance. Aucun montant n’est inventé ici."
-              />
-            )}
+            {activeTab === "operations" && <OperationsTab workspace={workspace} loading={workspaceLoading} />}
+            {activeTab === "messages" && <MessagesTab workspace={workspace} loading={workspaceLoading} />}
+            {activeTab === "payments" && <PaymentsTab workspace={workspace} loading={workspaceLoading} currency={client.preferred_currency} />}
             {activeTab === "history" && (
               <HistoryTab events={timeline} loading={timelineLoading} />
             )}
@@ -1037,29 +1046,36 @@ function SummaryTab({ client }: { client: ClientRecord }) {
   );
 }
 
-function OperationsTab({ client }: { client: ClientRecord }) {
-  return (
-    <div className="space-y-4">
-      <ModuleCounter
-        icon={FileText}
-        title="Dossiers"
-        count={client.dossiers_count}
-        text="Les dossiers liés à ce client seront consultables ici dès que le module Dossiers exposera sa vue détaillée."
-      />
-      <ModuleCounter
-        icon={Package}
-        title="Colis"
-        count={client.shipments_count}
-        text="Les colis et expéditions liés au client seront alimentés par les modules Colis, Tracking et Expéditions."
-      />
-      <ModuleCounter
-        icon={Truck}
-        title="Expéditions"
-        count={client.shipments_count}
-        text="La liste opérationnelle complète restera dans le module Expéditions pour garder une séparation métier propre."
-      />
-    </div>
-  );
+function OperationsTab({ workspace, loading }: { workspace: ClientWorkspace | null; loading: boolean }) {
+  if (loading) return <LoadingLines />;
+  if (!workspace?.packages.length) return <EmptyState title="Aucun colis" text="Les colis enregistrés pour ce client apparaîtront ici avec leur départ et leur destination." />;
+  return <div className="space-y-3">
+    <div className="grid grid-cols-2 gap-3"><SmallMetric label="Colis" value={workspace.summary.packages}/><SmallMetric label="En cours" value={workspace.summary.active_packages}/></div>
+    {workspace.packages.map(item=><article key={item.id} className="rounded-md border border-[#dfe3e7] bg-white p-4">
+      <div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-[#273038]">{item.package_reference}</p><p className="mt-1 text-[12px] text-[#687584]">{item.tracking_id || "Suivi non renseigné"}</p></div><span className="rounded-full bg-[#eef8f3] px-2.5 py-1 text-[11px] font-semibold text-[#087a48]">{humanStatus(item.status)}</span></div>
+      <div className="mt-3 grid gap-2 text-[12px] text-[#5f6b76] sm:grid-cols-2"><span>Destination : {[item.destination_city,item.destination_country].filter(Boolean).join(", ") || "—"}</span><span>Poids : {item.weight_kg == null ? "—" : `${item.weight_kg} kg`}</span><span>Départ : {item.departure_code || "Non affecté"}</span><span>Mise à jour : {formatDate(item.updated_at)}</span></div>
+    </article>)}
+  </div>;
+}
+
+function MessagesTab({ workspace, loading }: { workspace: ClientWorkspace | null; loading: boolean }) {
+  if (loading) return <LoadingLines />;
+  if (!workspace?.messages.length) return <EmptyState title="Aucun message" text="Les échanges WhatsApp associés à cette fiche client apparaîtront ici." />;
+  return <div className="space-y-2">{workspace.messages.map(item=><article key={item.id} className={`max-w-[88%] rounded-lg px-3.5 py-3 ${item.direction === "outbound" ? "ml-auto bg-[#eaf8f1]" : "bg-[#f3f5f6]"}`}>
+    <div className="flex items-center justify-between gap-4 text-[11px] text-[#74808a]"><span>{item.direction === "outbound" ? "Agence" : item.sender_name || item.from_phone || "Client"}</span><time>{formatDate(item.created_at)}</time></div>
+    <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-5 text-[#303941]">{item.text_body || item.media_file_name || (item.message_type ? `Message ${item.message_type}` : "Message")}</p>
+    {item.send_status && item.direction === "outbound" && <p className="mt-1 text-right text-[10px] text-[#718079]">{humanStatus(item.send_status)}</p>}
+  </article>)}</div>;
+}
+
+function PaymentsTab({ workspace, loading, currency }: { workspace: ClientWorkspace | null; loading: boolean; currency?: string | null }) {
+  if (loading) return <LoadingLines />;
+  if (!workspace || (!workspace.documents.length && !workspace.payments.length)) return <EmptyState title="Aucune opération financière" text="Les factures, reçus, paiements et soldes de ce client apparaîtront ici." />;
+  return <div className="space-y-5">
+    <div className="grid grid-cols-2 gap-3"><SmallMetric label="Payé" value={formatMoney(workspace.summary.paid,currency)}/><SmallMetric label="Solde à payer" value={formatMoney(workspace.summary.outstanding,currency)}/></div>
+    <Section title="Factures et documents">{workspace.documents.map(item=><div key={item.id} className="flex items-center justify-between gap-3 border-b border-[#edf0f2] py-3 last:border-0"><div><p className="font-medium text-[#273038]">{item.document_number}</p><p className="mt-1 text-[12px] text-[#687584]">{humanStatus(item.document_type)} · {humanStatus(item.status)}</p></div><div className="text-right"><p className="font-semibold">{formatMoney(item.total,item.currency)}</p><p className="mt-1 text-[11px] text-[#687584]">Solde {formatMoney(item.balance_due,item.currency)}</p></div></div>)}</Section>
+    <Section title="Paiements reçus">{workspace.payments.length ? workspace.payments.map(item=><div key={item.id} className="flex items-center justify-between gap-3 border-b border-[#edf0f2] py-3 last:border-0"><div><p className="font-medium">{item.receipt_number}</p><p className="mt-1 text-[12px] text-[#687584]">{item.document_number} · {item.method}</p></div><div className="text-right"><p className="font-semibold text-[#087a48]">{formatMoney(item.amount,item.currency)}</p><p className="mt-1 text-[11px] text-[#687584]">{formatDate(item.paid_at)}</p></div></div>) : <p className="py-3 text-[13px] text-[#687584]">Aucun paiement reçu.</p>}</Section>
+  </div>;
 }
 
 function HistoryTab({
@@ -1668,57 +1684,6 @@ function SmallMetric({
   );
 }
 
-function ModuleCounter({
-  icon: Icon,
-  title,
-  count,
-  text,
-}: {
-  icon: LucideIcon;
-  title: string;
-  count: number;
-  text: string;
-}) {
-  return (
-    <div className="rounded-md border border-[#d8dce2] p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[#f1f3f5]">
-            <Icon size={17} />
-          </div>
-          <div>
-            <p className="font-semibold">{title}</p>
-            <p className="mt-1 text-[13px] leading-5 text-[#5f6b76]">{text}</p>
-          </div>
-        </div>
-        <span className="text-[22px] font-semibold">{count}</span>
-      </div>
-    </div>
-  );
-}
-
-function ModulePlaceholder({
-  icon: Icon,
-  title,
-  text,
-}: {
-  icon: LucideIcon;
-  title: string;
-  text: string;
-}) {
-  return (
-    <div className="flex min-h-[240px] flex-col items-center justify-center rounded-md border border-[#d8dce2] bg-[#fbfcfd] p-8 text-center">
-      <div className="flex h-11 w-11 items-center justify-center rounded-md bg-white shadow-sm">
-        <Icon size={19} />
-      </div>
-      <h3 className="mt-4 text-[16px] font-semibold">{title}</h3>
-      <p className="mt-2 max-w-sm text-[13px] leading-6 text-[#617083]">
-        {text}
-      </p>
-    </div>
-  );
-}
-
 function EmptyState({ title, text }: { title: string; text: string }) {
   return (
     <div className="flex min-h-[220px] flex-col items-center justify-center rounded-md border border-[#d8dce2] bg-[#fbfcfd] p-8 text-center">
@@ -1802,6 +1767,22 @@ function formatDate(value: string | null | undefined) {
     month: "short",
     year: "numeric",
   }).format(new Date(value));
+}
+
+function humanStatus(value: string | null | undefined) {
+  if (!value) return "—";
+  const labels: Record<string, string> = {
+    QUOTE: "Devis", INVOICE: "Facture", CREDIT_NOTE: "Avoir",
+    RECEIVED: "Reçu", RECEIVED_AT_ORIGIN: "Reçu à l’origine",
+    WAREHOUSED: "En entrepôt", READY_FOR_BATCH: "Prêt au départ",
+    BATCHED: "Affecté au départ", SHIPPED: "Expédié", IN_TRANSIT: "En transit",
+    ARRIVED: "Arrivé", ARRIVED_DESTINATION: "Arrivé à destination",
+    READY_FOR_PICKUP: "Prêt au retrait", DELIVERED: "Livré",
+    PENDING: "En attente", SENT: "Envoyé", DELIVERED_MESSAGE: "Remis",
+    DRAFT: "Brouillon", ISSUED: "Émis", PARTIALLY_PAID: "Partiellement payé",
+    PAID: "Payé", OVERDUE: "En retard", VOID: "Annulé", CONFIRMED: "Confirmé",
+  };
+  return labels[value] || value.toLowerCase().replaceAll("_", " ").replace(/^./, letter => letter.toUpperCase());
 }
 
 function formatMoney(

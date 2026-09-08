@@ -39,6 +39,17 @@ def overview(org_id: str) -> dict:
                    created_at
           limit 1
         """), {"org_id": org_id}).fetchone())
+        team = [dict(row._mapping) for row in conn.execute(text("""
+          select id::text,member_display_name,member_email,role_code,status,last_seen_at
+          from organization_memberships where org_id=:org_id
+          order by case status when 'ACTIVE' then 0 else 1 end,created_at
+        """), {"org_id": org_id}).fetchall()]
+        locations = [dict(row._mapping) for row in conn.execute(text("""
+          select id::text,name,code,location_type,country,city,address,phone,
+                 whatsapp,email,manager_name,opening_hours,timezone,services,status,row_version
+          from organization_locations where org_id=:org_id
+          order by case status when 'ACTIVE' then 0 else 1 end,name
+        """), {"org_id": org_id}).fetchall()]
         numbering = [dict(row._mapping) for row in conn.execute(text("""
           select document_type,prefix_format,next_number,row_version,updated_at
           from document_numbering_settings
@@ -76,6 +87,8 @@ def overview(org_id: str) -> dict:
     return {
         "organization": organization,
         "responsible": responsible,
+        "team": team,
+        "locations": locations,
         "numbering": numbering,
         "whatsapp_numbers": numbers,
         "whatsapp_configuration": {

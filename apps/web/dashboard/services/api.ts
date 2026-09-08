@@ -70,6 +70,23 @@ function mutationSuccessMessage(method: string, rawUrl?: string, data?: unknown)
   if (method === "POST" && url === "/followups") return "Relance créée avec succès.";
   if (method === "PATCH" && /^\/followups\/[^/]+$/.test(url)) return "Relance modifiée avec succès.";
   if (method === "POST" && /^\/followups\/[^/]+\/execute$/.test(url)) return "Relance envoyée avec succès.";
+  if (method === "POST" && url === "/followups/pilot/drafts") return "Brouillon enregistré avec succès.";
+  if (method === "POST" && /^\/followups\/pilot\/[^/]+\/confirm$/.test(url)) return "Destinataires confirmés avec succès.";
+  if (method === "POST" && /^\/followups\/pilot\/[^/]+\/send$/.test(url)) return "Envoi WhatsApp lancé avec succès.";
+
+  if (method === "POST" && url === "/packages") return "Colis enregistré avec succès.";
+  if (method === "PATCH" && /^\/packages\/[^/]+$/.test(url)) return "Colis modifié avec succès.";
+  if (method === "POST" && /^\/packages\/[^/]+\/transition$/.test(url)) return "Statut du colis mis à jour avec succès.";
+  if (method === "POST" && /^\/packages\/[^/]+\/notifications$/.test(url)) return "Message client envoyé avec succès.";
+
+  if (method === "POST" && url === "/departures") return "Départ créé avec succès.";
+  if (method === "PATCH" && /^\/departures\/[^/]+$/.test(url)) return "Départ modifié avec succès.";
+  if (method === "POST" && /^\/departures\/[^/]+\/transition$/.test(url)) return "Statut du départ mis à jour avec succès.";
+  if (method === "POST" && /^\/departures\/[^/]+\/packages$/.test(url)) return "Colis affecté au départ avec succès.";
+  if (method === "DELETE" && /^\/departures\/[^/]+\/packages\/[^/]+$/.test(url)) return "Colis retiré du départ.";
+
+  if (method === "POST" && url === "/organization/admin/locations") return "Site opérationnel ajouté avec succès.";
+  if (method === "POST" && url === "/organization/invitations") return "Invitation envoyée avec succès.";
   if (method === "POST" && url === "/knowledge/pilot") return "Connaissance créée avec succès.";
   if (method === "PATCH" && /^\/knowledge\/pilot\/[^/]+$/.test(url)) return "Connaissance modifiée avec succès.";
   if (method === "POST" && /^\/knowledge\/pilot\/[^/]+\/publish$/.test(url)) return "Connaissance publiée avec succès.";

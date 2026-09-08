@@ -94,7 +94,7 @@ export const parcelFreightNavigation: readonly AppNavigationGroup[] = [
     ],
   },
   {
-    label: "Départs",
+    label: "Départs et manifestes",
     icon: Truck,
     collapsible: false,
     routes: [
@@ -102,43 +102,27 @@ export const parcelFreightNavigation: readonly AppNavigationGroup[] = [
     ],
   },
   {
-    label: "Finances",
+    label: "Annonces et relances",
+    icon: BellRing,
+    collapsible: false,
+    routes: [
+      { label: "Annonces et relances", href: "/app/followups", icon: BellRing, permission: "followups.read", keywords: ["annonce", "relance", "rappel", "client", "dossier", "whatsapp"] },
+    ],
+  },
+  {
+    label: "Finance",
     icon: ReceiptText,
     collapsible: false,
     routes: [
-      { label: "Finances", href: "/app/finance", icon: ReceiptText, permission: "finance.read", keywords: ["paiement", "solde", "facture", "reçu"] },
+      { label: "Finance", href: "/app/finance", icon: ReceiptText, permission: "finance.read", keywords: ["paiement", "solde", "facture", "reçu"] },
     ],
   },
   {
-    label: "Messages",
+    label: "Messagerie",
     icon: MessageCircle,
     collapsible: false,
     routes: [
-      { label: "Messages", href: "/app/inbox", icon: MessageCircle, permission: "inbox.read", keywords: ["whatsapp", "message", "conversation"] },
-    ],
-  },
-  {
-    label: "Suivi",
-    icon: Radar,
-    collapsible: false,
-    routes: [
-      { label: "Suivi", href: "/app/tracking", icon: Radar, permission: "tracking.read", keywords: ["suivi", "tracking", "statut"] },
-    ],
-  },
-  {
-    label: "Connaissances",
-    icon: BookOpen,
-    collapsible: false,
-    routes: [
-      { label: "Connaissances", href: "/app/knowledge", icon: BookOpen, permission: "pilot.knowledge.read", keywords: ["faq", "tarif", "adresse", "délai", "paiement"] },
-    ],
-  },
-  {
-    label: "Paramètres",
-    icon: Settings,
-    collapsible: false,
-    routes: [
-      { label: "Paramètres", href: "/app/settings", icon: Settings, permission: "pilot.settings.read", keywords: ["agence", "whatsapp", "accès"] },
+      { label: "Messagerie", href: "/app/inbox", icon: MessageCircle, permission: "inbox.read", keywords: ["whatsapp", "message", "conversation"] },
     ],
   },
 ];

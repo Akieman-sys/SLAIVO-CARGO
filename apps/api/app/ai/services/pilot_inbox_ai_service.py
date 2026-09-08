@@ -77,8 +77,8 @@ def _safe_context_snapshot(context: dict) -> dict:
     }
 
 
-def _grounding_check(response_text: str, knowledge: list[dict]) -> tuple[bool, str | None]:
-    source_text = " ".join(item.get("content") or "" for item in knowledge)
+def _grounding_check(response_text: str, knowledge: list[dict], operational_context: str = "") -> tuple[bool, str | None]:
+    source_text = " ".join(item.get("content") or "" for item in knowledge) + " " + operational_context
     response_numbers = set(re.findall(r"\d+(?:[.,]\d+)?", response_text))
     source_numbers = set(re.findall(r"\d+(?:[.,]\d+)?", source_text))
     if response_numbers - source_numbers:
@@ -115,6 +115,27 @@ def prepare_pilot_suggestion(
     response_text = None
     confidence = float(classification["confidence"])
     reason = classification["reason"]
+    operational_lines = []
+    for package in context.get("packages") or []:
+        operational_lines.append(
+            "Colis {tracking} : statut={status}; destination={destination}; ETA={eta}; "
+            "dernière_position={location}; départ={departure}; date_départ={departure_at}.".format(
+                tracking=package.get("tracking_id") or package.get("package_reference") or "non renseigné",
+                status=package.get("status") or "non renseigné",
+                destination=", ".join(filter(None, [package.get("destination_city"), package.get("destination_country")])) or "non renseignée",
+                eta=package.get("eta_at") or "non renseignée",
+                location=package.get("last_scan_location") or "non renseignée",
+                departure=package.get("departure_code") or "non affecté",
+                departure_at=package.get("departure_scheduled_at") or "non renseignée",
+            )
+        )
+    finance = context.get("finance_summary") or {}
+    if finance and (finance.get("balance_due") or finance.get("amount_paid")):
+        operational_lines.append(
+            f"Compte client : payé={finance.get('amount_paid') or 0} {finance.get('currency') or ''}; "
+            f"solde à payer={finance.get('balance_due') or 0} {finance.get('currency') or ''}."
+        )
+    operational_context = "\n".join(operational_lines)
 
     if classification["intent"] == "GREETING":
         response_text = f"Bonjour ! Bienvenue chez {context['organization_name']}. Comment pouvons-nous vous aider ?"
@@ -127,11 +148,15 @@ def prepare_pilot_suggestion(
         knowledge = search_knowledge(org_id, message, "WHATSAPP", language=language, limit=5)
         if not knowledge and language != "FR":
             knowledge = search_knowledge(org_id, message, "WHATSAPP", language="FR", limit=5)
-        if knowledge:
-            sources = "\n\n".join(
+        if knowledge or operational_context:
+            knowledge_sources = "\n\n".join(
                 f"SOURCE {index + 1} — {item['title']}\n{item['content']}"
                 for index, item in enumerate(knowledge)
             )
+            sources = "\n\n".join(filter(None, [
+                knowledge_sources,
+                f"DONNÉES OPÉRATIONNELLES ACTUELLES DU CLIENT\n{operational_context}" if operational_context else "",
+            ]))
             client_name = context.get("client_name") or "le client"
             company_rules = (settings.get("system_prompt") or "").strip()
             style = settings.get("communication_style") or "PROFESSIONAL"
@@ -158,9 +183,9 @@ Règles supplémentaires confirmées par l'entreprise :
             )
             if generated.get("success") and generated.get("content"):
                 response_text = generated["content"].strip()
-                grounded, grounding_reason = _grounding_check(response_text, knowledge)
+                grounded, grounding_reason = _grounding_check(response_text, knowledge, operational_context)
                 classification["risk"] = "SAFE" if grounded else "REVIEW"
-                reason = "connaissance_publiee" if grounded else grounding_reason
+                reason = ("donnees_operationnelles" if operational_context else "connaissance_publiee") if grounded else grounding_reason
                 confidence = 0.95 if grounded else 0.6
             else:
                 reason = "fournisseur_ia_indisponible"
@@ -174,7 +199,7 @@ Règles supplémentaires confirmées par l'entreprise :
     eligible_for_auto = (
         classification["risk"] == "SAFE"
         and confidence >= float(settings.get("auto_reply_min_confidence") or 0.75)
-        and (classification["intent"] == "GREETING" or bool(source_ids))
+        and (classification["intent"] == "GREETING" or bool(source_ids) or bool(operational_context))
     )
     review_reason = None if eligible_for_auto else reason
     draft = create_ai_draft(

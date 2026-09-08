@@ -4,7 +4,7 @@ import io
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field, model_validator
 from starlette.responses import Response, StreamingResponse
 
@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.services.dossier_document_storage import create_document_download_url, upload_private_document
 from app.services.package_label_ocr import read_package_label
 from app.services.package_label_matching import match_package_label
+from app.services.notification_sender import send_notification
 from app.packages.repository import (
     ANOMALY_SEVERITIES,
     INVENTORY_STATUSES,
@@ -34,6 +35,7 @@ from app.packages.repository import (
     list_packages,
     package_stats,
     package_timeline,
+    public_package_tracking,
     resolve_package_anomaly,
     update_package,
     move_package, weigh_package, add_package_note, set_package_checklist,
@@ -48,6 +50,15 @@ from app.packages.repository import (
 router = APIRouter()
 
 
+def _dispatch_queued_status(background_tasks: BackgroundTasks, org_id: str, package: dict | None):
+    if not package:
+        return package
+    notification_id = package.pop("queued_notification_id", None)
+    if notification_id:
+        background_tasks.add_task(send_notification, org_id, notification_id)
+    return package
+
+
 class PackagePayload(BaseModel):
     dossier_id: str
     package_reference: str | None = Field(default=None, max_length=120)
@@ -56,7 +67,7 @@ class PackagePayload(BaseModel):
     package_type: str = "carton"
     description: str | None = Field(default=None, max_length=260)
     category: str | None = Field(default=None, max_length=120)
-    status: str = "CREATED"
+    status: str = "RECEIVED_AT_ORIGIN"
     validation_status: str = "PENDING"
     payment_status: str = "UNKNOWN"
     payment_clearance_status: str | None = None
@@ -339,6 +350,14 @@ def packages_index(
 def packages_stats(tenant=Depends(get_current_tenant)):
     return {"status": "ok", "stats": package_stats(tenant["org_id"])}
 
+
+@router.get("/public/packages/tracking/{reference}")
+def packages_public_tracking(reference: str):
+    package = public_package_tracking(reference)
+    if not package:
+        raise HTTPException(status_code=404, detail="tracking_not_found")
+    return {"status": "ok", "tracking": package}
+
 @router.get("/packages/analytics", dependencies=[Depends(require_permission("packages.read"))])
 def packages_analytics(tenant=Depends(get_current_tenant)):
     return {"status":"ok","analytics":package_analytics(tenant["org_id"])}
@@ -465,7 +484,7 @@ async def packages_import(file: UploadFile = File(...), tenant=Depends(get_curre
 
 
 @router.post("/packages", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("packages.create"))])
-def packages_create(body: PackagePayload, tenant=Depends(get_current_tenant)):
+def packages_create(body: PackagePayload, background_tasks: BackgroundTasks, tenant=Depends(get_current_tenant)):
     try:
         package = create_package(tenant["org_id"], _user_id(tenant), body.model_dump())
     except ValueError as exc:
@@ -476,7 +495,7 @@ def packages_create(body: PackagePayload, tenant=Depends(get_current_tenant)):
         if str(exc) == "supplier_tracking_already_exists":
             raise HTTPException(status_code=409, detail="supplier_tracking_already_exists") from exc
         raise
-    return {"status": "ok", "package": package}
+    return {"status": "ok", "package": _dispatch_queued_status(background_tasks, tenant["org_id"], package)}
 
 
 @router.get("/packages/{package_id}", dependencies=[Depends(require_permission("packages.read"))])
@@ -496,7 +515,7 @@ def packages_timeline(package_id: str, tenant=Depends(get_current_tenant)):
 
 
 @router.patch("/packages/{package_id}", dependencies=[Depends(require_permission("packages.update"))])
-def packages_update(package_id: str, body: PackagePatchPayload, tenant=Depends(get_current_tenant)):
+def packages_update(package_id: str, body: PackagePatchPayload, background_tasks: BackgroundTasks, tenant=Depends(get_current_tenant)):
     package = update_package(
         tenant["org_id"],
         package_id,
@@ -505,7 +524,7 @@ def packages_update(package_id: str, body: PackagePatchPayload, tenant=Depends(g
     )
     if not package:
         raise HTTPException(status_code=404, detail="package_not_found")
-    return {"status": "ok", "package": package}
+    return {"status": "ok", "package": _dispatch_queued_status(background_tasks, tenant["org_id"], package)}
 
 
 @router.post("/packages/{package_id}/media", dependencies=[Depends(require_permission("packages.update"))])
@@ -533,14 +552,16 @@ def packages_anomaly_resolve(package_id: str, anomaly_id: str, body: PackageAnom
 
 
 @router.post("/packages/{package_id}/notifications", dependencies=[Depends(require_permission("packages.update"))])
-def packages_notification_create(package_id: str, body: PackageNotificationPayload, tenant=Depends(get_current_tenant)):
+def packages_notification_create(package_id: str, body: PackageNotificationPayload, background_tasks: BackgroundTasks, tenant=Depends(get_current_tenant)):
     package = create_package_notification(tenant["org_id"], package_id, _user_id(tenant), body.model_dump())
     if not package:
         raise HTTPException(status_code=404, detail="package_not_found")
-    return {"status": "ok", "package": package}
+    return {"status": "ok", "package": _dispatch_queued_status(background_tasks, tenant["org_id"], package)}
 
 @router.post("/packages/{package_id}/transition",dependencies=[Depends(require_permission("packages.update"))])
-def packages_transition(package_id:str,body:PackageTransitionPayload,tenant=Depends(get_current_tenant)):return {"status":"ok","package":transition_package(tenant["org_id"],package_id,_user_id(tenant),body.new_status,body.expected_version,body.reason)}
+def packages_transition(package_id:str,body:PackageTransitionPayload,background_tasks:BackgroundTasks,tenant=Depends(get_current_tenant)):
+    package=transition_package(tenant["org_id"],package_id,_user_id(tenant),body.new_status,body.expected_version,body.reason)
+    return {"status":"ok","package":_dispatch_queued_status(background_tasks,tenant["org_id"],package)}
 @router.post("/packages/{package_id}/quality-control",dependencies=[Depends(require_permission("packages.quality"))])
 def packages_quality(package_id:str,body:PackageQualityPayload,tenant=Depends(get_current_tenant)):return {"status":"ok","package":quality_control(tenant["org_id"],package_id,_user_id(tenant),body.model_dump())}
 @router.post("/packages/{package_id}/pricing",dependencies=[Depends(require_permission("packages.pricing"))])

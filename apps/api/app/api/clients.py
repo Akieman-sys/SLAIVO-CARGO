@@ -11,6 +11,7 @@ from app.clients.repository import (
     CLIENT_STATUSES,
     CLIENT_TYPES,
     client_timeline,
+    client_workspace,
     client_stats,
     create_client,
     export_clients,
@@ -405,6 +406,17 @@ def clients_timeline(client_id: str, tenant=Depends(get_current_tenant)):
     if not client:
         raise HTTPException(status_code=404, detail="client_not_found")
     return {"status": "ok", "items": client_timeline(tenant["org_id"], client_id)}
+
+
+@router.get(
+    "/clients/{client_id}/workspace",
+    dependencies=[Depends(require_permission("clients.read"))],
+)
+def clients_workspace(client_id: str, tenant=Depends(get_current_tenant)):
+    workspace = client_workspace(tenant["org_id"], client_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="client_not_found")
+    return {"status": "ok", "workspace": workspace}
 
 
 @router.patch(

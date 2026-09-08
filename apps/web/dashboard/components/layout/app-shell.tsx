@@ -104,7 +104,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const pilotPrimaryRoutes = useMemo(() => {
     const primaryHrefs = productProfile === "PARCEL_FREIGHT"
-      ? new Set(["/app/clients", "/app/packages", "/app/departures", "/app/finance", "/app/inbox", "/app/tracking", "/app/knowledge", "/app/settings"])
+      ? new Set(["/app/clients", "/app/packages", "/app/departures", "/app/followups", "/app/finance", "/app/inbox"])
       : new Set(["/app/dossiers", "/app/inbox", "/app/followups", "/app/knowledge"]);
     return groupedRoutes.flatMap((group) => group.routes).filter((route) => primaryHrefs.has(route.href));
   }, [groupedRoutes, productProfile]);

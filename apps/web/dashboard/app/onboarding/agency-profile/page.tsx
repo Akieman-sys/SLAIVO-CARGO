@@ -21,7 +21,7 @@ export default function AgencyProfilePage() {
   const set = (key:keyof AgencyProfilePayload,value:string) => setForm(current=>({...current,[key]:value}));
   async function submit(event:FormEvent) {
     event.preventDefault(); setSaving(true); setError("");
-    try { await saveAgencyProfile(form); await completeOnboardingStep("AGENCY_PROFILE"); router.push("/onboarding/operations"); }
+    try { await saveAgencyProfile(form); await completeOnboardingStep("WELCOME"); await completeOnboardingStep("AGENCY_PROFILE"); router.push("/onboarding/operations"); }
     catch { setError("Vérifiez les informations obligatoires puis réessayez."); setSaving(false); }
   }
   if (!state) return stateError?<OnboardingError message={stateError} retry={()=>void reload()}/>:<OnboardingLoading/>;

@@ -23,12 +23,16 @@ def test_onboarding_v2_is_short_localized_and_product_aware():
 
 def test_onboarding_pages_collect_real_data_without_manual_completion_cards():
     root = ROOT / "apps/web/dashboard"
+    welcome = (root / "app/onboarding/welcome/page.tsx").read_text(encoding="utf-8")
     profile = (root / "app/onboarding/agency-profile/page.tsx").read_text(encoding="utf-8")
     operations = (root / "app/onboarding/operations/page.tsx").read_text(encoding="utf-8")
     whatsapp = (root / "app/onboarding/whatsapp/page.tsx").read_text(encoding="utf-8")
     ai = (root / "app/onboarding/ai-knowledge/page.tsx").read_text(encoding="utf-8")
     shell = (root / "components/onboarding/OnboardingShell.tsx").read_text(encoding="utf-8")
     assert "saveAgencyProfile" in profile and "PARCEL_FREIGHT" in profile
+    assert 'router.push("/onboarding/agency-profile")' in welcome
+    assert "completeOnboardingStep" not in welcome
+    assert 'completeOnboardingStep("WELCOME")' in profile
     assert "saveLocation" in operations
     assert "startPilotWhatsappQR" in whatsapp and "getPilotWhatsappQRStatus" in whatsapp
     assert "createPilotKnowledge" in ai and "updateInboxAIMode" in ai

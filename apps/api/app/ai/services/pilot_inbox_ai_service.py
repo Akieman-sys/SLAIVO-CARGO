@@ -31,6 +31,10 @@ ACTION_PATTERNS = (
     r"\b(payer|rembourser|valider le paiement|changer le dossier)\b",
 )
 GREETING_PATTERNS = (r"^(bonjour|bonsoir|salut|hello|coucou)[ !?.]*$", r"^vous êtes là[ !?.]*$")
+OPERATIONAL_PATTERNS = (
+    r"\b(colis|tracking|suivi|statut|position|arriv[ée]|livr[ée]|expédi[ée]|départ|destination|eta)\b",
+    r"\b(solde|paiement|pay[ée]|reste à payer|facture|montant)\b",
+)
 
 
 def _matches(patterns: tuple[str, ...], value: str) -> bool:
@@ -78,7 +82,7 @@ def _safe_context_snapshot(context: dict) -> dict:
 
 
 def _grounding_check(response_text: str, knowledge: list[dict], operational_context: str = "") -> tuple[bool, str | None]:
-    source_text = " ".join(item.get("content") or "" for item in knowledge) + " " + operational_context
+    source_text = " ".join(item.get("matched_content") or item.get("content") or "" for item in knowledge) + " " + operational_context
     response_numbers = set(re.findall(r"\d+(?:[.,]\d+)?", response_text))
     source_numbers = set(re.findall(r"\d+(?:[.,]\d+)?", source_text))
     if response_numbers - source_numbers:
@@ -135,7 +139,10 @@ def prepare_pilot_suggestion(
             f"Compte client : payé={finance.get('amount_paid') or 0} {finance.get('currency') or ''}; "
             f"solde à payer={finance.get('balance_due') or 0} {finance.get('currency') or ''}."
         )
-    operational_context = "\n".join(operational_lines)
+    # Customer records are authoritative only when the question is actually
+    # about tracking or finance. Their mere presence must not make an
+    # unrelated generated answer eligible for automatic sending.
+    operational_context = "\n".join(operational_lines) if _matches(OPERATIONAL_PATTERNS, message) else ""
 
     if classification["intent"] == "GREETING":
         response_text = f"Bonjour ! Bienvenue chez {context['organization_name']}. Comment pouvons-nous vous aider ?"
@@ -150,7 +157,7 @@ def prepare_pilot_suggestion(
             knowledge = search_knowledge(org_id, message, "WHATSAPP", language="FR", limit=5)
         if knowledge or operational_context:
             knowledge_sources = "\n\n".join(
-                f"SOURCE {index + 1} — {item['title']}\n{item['content']}"
+                f"SOURCE {index + 1} — {item['title']}\n{item.get('matched_content') or item['content']}"
                 for index, item in enumerate(knowledge)
             )
             sources = "\n\n".join(filter(None, [
@@ -186,7 +193,8 @@ Règles supplémentaires confirmées par l'entreprise :
                 grounded, grounding_reason = _grounding_check(response_text, knowledge, operational_context)
                 classification["risk"] = "SAFE" if grounded else "REVIEW"
                 reason = ("donnees_operationnelles" if operational_context else "connaissance_publiee") if grounded else grounding_reason
-                confidence = 0.95 if grounded else 0.6
+                retrieval_score = max((float(item.get("rank") or 0) for item in knowledge), default=1.0 if operational_context else 0.0)
+                confidence = min(0.98, 0.55 + (0.45 * retrieval_score)) if grounded else 0.6
             else:
                 reason = "fournisseur_ia_indisponible"
         else:
@@ -202,26 +210,31 @@ Règles supplémentaires confirmées par l'entreprise :
         and (classification["intent"] == "GREETING" or bool(source_ids) or bool(operational_context))
     )
     review_reason = None if eligible_for_auto else reason
-    draft = create_ai_draft(
-        org_id=org_id,
-        client_phone=client_phone,
-        source_message=message,
-        draft_text=response_text,
-        intent=classification["intent"],
-        decision="AUTO_REPLY" if eligible_for_auto else "DRAFT_ONLY",
-        source_message_id=str(context["source_message_id"]),
-        source_ids=source_ids,
-        confidence=confidence,
-        risk_level=classification["risk"],
-        review_reason=review_reason,
-        context_snapshot=_safe_context_snapshot(context),
-    )
+    # Automatic mode is autonomous: a high-confidence answer is sent, while
+    # an uncertain request is flagged for a human without exposing a draft to
+    # approve. Suggestion mode deliberately keeps its operator draft.
+    draft = None
+    if mode == "SUGGESTION_ONLY" or eligible_for_auto:
+        draft = create_ai_draft(
+            org_id=org_id,
+            client_phone=client_phone,
+            source_message=message,
+            draft_text=response_text,
+            intent=classification["intent"],
+            decision="AUTO_REPLY" if eligible_for_auto else "DRAFT_ONLY",
+            source_message_id=str(context["source_message_id"]),
+            source_ids=source_ids,
+            confidence=confidence,
+            risk_level=classification["risk"],
+            review_reason=review_reason,
+            context_snapshot=_safe_context_snapshot(context),
+        )
     result = {
         "status": "ok", "mode": mode, "draft": draft,
         "response_text": response_text, "intent": classification["intent"],
         "confidence": confidence, "risk_level": classification["risk"],
         "reason": reason, "eligible_for_auto": eligible_for_auto,
-        "sources": [{"id": str(item["id"]), "title": item["title"], "updated_at": item.get("updated_at")} for item in knowledge],
+        "sources": [{"id": str(item["id"]), "title": item["title"], "updated_at": item.get("updated_at"), "score": float(item.get("rank") or 0)} for item in knowledge],
         "context": _safe_context_snapshot(context),
     }
     run_key = event_key or f"manual:{context['source_message_id']}:{uuid.uuid4()}"
@@ -231,7 +244,7 @@ Règles supplémentaires confirmées par l'entreprise :
         client_id=context.get("client_id"), dossier_id=context.get("dossier_id"),
         source_message_id=context.get("source_message_id"), intent=classification["intent"],
         confidence=confidence, risk_level=classification["risk"], reason=reason,
-        source_ids=source_ids, draft_id=draft["id"], metadata={"eligible_for_auto": eligible_for_auto},
+        source_ids=source_ids, draft_id=draft["id"] if draft else None, metadata={"eligible_for_auto": eligible_for_auto},
     )
     return result
 
@@ -268,14 +281,16 @@ def process_pilot_inbound_ai(
         return prepared
     if mode != "CONTROLLED_AUTO" or not prepared["eligible_for_auto"]:
         if mode == "CONTROLLED_AUTO":
+            update_state(org_id, client_phone, "OPEN", True, "pilot-ai")
             log_ai_run(
                 org_id=org_id, client_phone=client_phone, event_key=event_key,
                 response_mode=mode, outcome="REVIEW_REQUIRED", reason=prepared["reason"],
                 client_id=prepared["context"].get("client_id"), dossier_id=prepared["context"].get("dossier_id"),
                 source_message_id=prepared["context"].get("source_message_id"),
                 intent=prepared["intent"], confidence=prepared["confidence"], risk_level=prepared["risk_level"],
-                source_ids=[item["id"] for item in prepared["sources"]], draft_id=prepared["draft"]["id"],
+                source_ids=[item["id"] for item in prepared["sources"]], draft_id=None,
             )
+            return {**prepared, "status": "review_required", "reason": prepared.get("reason")}
         return {**prepared, "status": "drafted", "reason": prepared.get("reason")}
 
     route = resolve_outbound_whatsapp_sender(org_id=org_id, preferred_role=preferred_role)

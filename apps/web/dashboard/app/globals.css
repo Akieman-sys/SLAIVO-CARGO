@@ -1335,3 +1335,16 @@ html[data-theme="dark"] .operation-form-surface :is(input, select, textarea) {
   border-color: #3b464f !important;
   color: #edf1f3 !important;
 }
+@keyframes slaivio-logo-breathe {
+  0%, 100% { transform: translateY(0) scale(0.96); opacity: 0.72; }
+  50% { transform: translateY(-6px) scale(1.04); opacity: 1; }
+}
+
+.slaivio-logo-loader {
+  animation: slaivio-logo-breathe 1.15s cubic-bezier(.4, 0, .2, 1) infinite;
+  filter: drop-shadow(0 10px 16px rgba(18, 199, 111, .14));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slaivio-logo-loader { animation: none; }
+}

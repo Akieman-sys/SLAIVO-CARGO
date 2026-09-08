@@ -15,7 +15,7 @@ type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary: "border-transparent bg-[#12c76f] text-white hover:bg-[#0fb766]",
-  secondary: "border-[#d4d9df] bg-white text-[#30363d] hover:bg-[#f6f7f7]",
+  secondary: "border-[#d8dadd] bg-white text-[#30363d] shadow-[0_1px_1px_rgba(15,23,42,.03)] hover:border-[#c7cbcf] hover:bg-[#f7f7f6]",
   ghost: "border-transparent bg-transparent text-[#4f5964] hover:bg-[#f0f2f2]",
   danger: "border-[#efc7c7] bg-white text-[#b42318] hover:bg-[#fff5f5]",
 };
@@ -113,7 +113,7 @@ export function OperationTabMenu<T extends string>({
         onClick={() => setOpen((current) => !current)}
         aria-label={selected ? `Autres vues, vue active : ${selected[1]}` : label}
         title={selected?.[1] || label}
-        className={`inline-flex h-8 w-8 items-center justify-center rounded-[6px] border transition-colors ${selected ? "border-[#b8ddca] bg-[#edf8f2] text-[#087a46]" : "border-transparent text-[#626d77] hover:border-[#d9dde1] hover:bg-[#f4f5f5] hover:text-[#2c333a]"}`}
+        className={`inline-flex h-9 w-9 items-center justify-center rounded-[6px] border shadow-[0_1px_1px_rgba(15,23,42,.03)] transition-colors ${selected ? "border-[#b8ddca] bg-[#edf8f2] text-[#087a46]" : "border-[#d8dadd] bg-white text-[#626d77] hover:border-[#c7cbcf] hover:bg-[#f7f7f6] hover:text-[#2c333a]"}`}
       >
         <Ellipsis size={16} aria-hidden="true" />
       </button>

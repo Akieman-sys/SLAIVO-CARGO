@@ -194,7 +194,7 @@ function IdentifierEditor({item,run}:{item:PilotSettingsData["numbering"][number
 
 const modeContent:Record<InboxAIMode,{title:string;description:string}> = {
   SUGGESTION_ONLY:{title:"Suggestion uniquement",description:"L’IA prépare la réponse. Le responsable la vérifie et l’envoie."},
-  CONTROLLED_AUTO:{title:"Automatique contrôlé",description:"L’IA répond seule uniquement lorsque la réponse est fiable, publiée et sans risque."},
+  CONTROLLED_AUTO:{title:"Mode automatique",description:"SLAIVIO répond directement, 24 h/24, lorsque la réponse est couverte par une connaissance publiée et suffisamment fiable. Sinon, la conversation est signalée à l’équipe sans envoyer de réponse incertaine."},
   PAUSED:{title:"IA en pause",description:"Aucune réponse ni suggestion IA n’est produite. Le responsable répond manuellement."},
 };
 function CommunicationSettings({data,run}:{data:PilotSettingsData;run:(action:()=>Promise<unknown>,message:string)=>Promise<void>}) {

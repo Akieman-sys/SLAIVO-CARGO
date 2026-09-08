@@ -79,7 +79,7 @@ export function OrganizationSwitcher({ collapsed = false, menuPlacement = "up", 
     try {
       await createTenant(name);
       window.sessionStorage.removeItem("slaivio:dashboard-home");
-      window.location.reload();
+      window.location.assign("/onboarding");
     } catch {
       setError("La création de l’organisation a échoué.");
       setCreating(false);

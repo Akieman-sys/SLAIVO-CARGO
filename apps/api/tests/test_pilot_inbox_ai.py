@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from app.ai.services.pilot_inbox_ai_service import _classify, _grounding_check
 from app.api import ai_drafts
+from app.knowledge.repository import _search_terms
 
 
 ROOT = Path(__file__).parents[3]
@@ -38,6 +39,10 @@ def test_automatic_reply_rejects_unsupported_numbers_and_promises():
     assert _grounding_check("Le délai est de 5 jours.", knowledge) == (False, "information_chiffree_non_sourcee")
     assert _grounding_check("La livraison est garantie.", knowledge) == (False, "promesse_non_autorisee")
     assert _grounding_check("Votre colis TRK-804 est arrivé.", [], "Colis TRK-804 : statut=ARRIVED") == (True, None)
+
+
+def test_knowledge_search_keeps_useful_words_from_a_natural_question():
+    assert _search_terms("Bonjour, quels sont vos tarifs pour envoyer un colis ?") == ["tarifs", "envoyer", "colis"]
 
 
 def test_pilot_ai_uses_only_published_client_knowledge_and_provider_abstraction():
@@ -86,10 +91,10 @@ def test_paused_mode_is_returned_as_a_clear_conflict(monkeypatch):
     assert error.value.detail == "ai_paused"
 
 
-def test_inbox_exposes_human_labels_and_controlled_ai_actions():
+def test_inbox_exposes_human_labels_and_automatic_ai_actions():
     page = read("apps/web/dashboard/components/inbox/pilot-inbox-page.tsx")
     service = read("apps/web/dashboard/services/inbox.ts")
-    for label in ("Suggestion uniquement", "Automatique contrôlé", "IA en pause", "Suggérer une réponse", "Résumé pour le responsable"):
+    for label in ("Suggestion uniquement", "Mode automatique", "IA en pause", "Suggérer une réponse", "Résumé pour le responsable"):
         assert label in page
     assert "generateInboxAISuggestion" in service
     assert "summarizeInboxConversation" in service

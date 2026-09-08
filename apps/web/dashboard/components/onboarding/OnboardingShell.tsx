@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Check, LifeBuoy } from "lucide-react";
 
 import { SlaivioBrand } from "@/components/ui/slaivio-brand";
+import { SlaivioLogoLoader } from "@/components/ui/slaivio-logo-loader";
 import type { OnboardingExperienceState } from "@/services/onboarding-experience";
 
 const visibleSteps = ["AGENCY_PROFILE", "OPERATIONS", "WHATSAPP", "AI_KNOWLEDGE", "REVIEW"];
@@ -60,7 +61,7 @@ export function OnboardingFooter({ backHref, children }: { backHref?: string; ch
 }
 
 export function OnboardingLoading() {
-  return <main className="grid min-h-screen place-items-center bg-white"><div className="text-center"><SlaivioBrand/><p className="mt-4 text-[13px] text-[#7b858d]">Chargement de votre configuration…</p></div></main>;
+  return <SlaivioLogoLoader label="Chargement de votre configuration" />;
 }
 
 export function OnboardingError({ message, retry }: { message: string; retry: () => void }) {

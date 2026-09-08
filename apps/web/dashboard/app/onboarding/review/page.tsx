@@ -25,4 +25,4 @@ export default function OnboardingReviewPage(){
     {!ready&&<p className="mt-6 rounded-[8px] bg-[#fff7e8] p-4 text-[13px] text-[#755d25]">Complétez l’entreprise, le site principal et WhatsApp avant d’accéder à l’espace de travail.</p>}{error&&<p role="alert" className="mt-5 text-[13px] text-[#a33a32]">{error}</p>}<OnboardingFooter backHref="/onboarding/ai-knowledge"><button type="button" onClick={finish} disabled={!ready||saving} className={onboardingPrimaryButtonClass}>{saving?"Ouverture…":"Accéder à SLAIVIO"}</button></OnboardingFooter>
   </OnboardingShell>;
 }
-function modeLabel(value:string){return ({SUGGESTION_ONLY:"Suggestions uniquement",CONTROLLED_AUTO:"Automatique contrôlé",PAUSED:"En pause"} as Record<string,string>)[value]||value}
+function modeLabel(value:string){return ({SUGGESTION_ONLY:"Suggestions uniquement",CONTROLLED_AUTO:"Mode automatique",PAUSED:"En pause"} as Record<string,string>)[value]||value}
